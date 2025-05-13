@@ -1,0 +1,39 @@
+name: Automerge Dependabot Pull Requests
+description: Automatically merge pull requests created by Dependabot with configurable rules
+author: navikt
+version: 0.0.1
+
+branding:
+  icon: git-merge
+  color: green
+
+inputs:
+  token:
+    description: The name of the variable that contains the GitHub token
+    required: true
+    default: 'GITHUB_TOKEN'
+  minimum-age-of-pr:
+    description: The minimum age of the pull request in days before it can be automerged
+    required: false
+    default: '0'
+  blackout-periods:
+    description: Periods of time, months, or days when the action should not run (e.g., "Dec 24-Jan 5", "Sat,Sun", "9:00-17:00")
+    required: false
+  ignored-dependencies:
+    description: Comma-separated list of dependencies to ignore (will not be automerged)
+    required: false
+  ignored-versions:
+    description: Comma-separated list of specific versions to ignore (format package@version, e.g., "lodash@4.17.21,axios@0.21.1")
+    required: false
+  semver-filter:
+    description: Filter based on semver level changes (comma-separated list of major, minor, patch)
+    required: false
+    default: 'patch,minor'
+  merge-method:
+    description: The merge method to use (merge, squash, rebase)
+    required: false
+    default: 'merge'
+
+runs:
+  using: node22
+  main: dist/index.js

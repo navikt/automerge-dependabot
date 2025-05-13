@@ -1,0 +1,183 @@
+const core = require('@actions/core');
+const timeUtils = require('../src/timeUtils');
+
+// Mock dependencies
+jest.mock('@actions/core');
+
+describe('TimeUtils Module', () => {
+  let originalDate;
+  
+  beforeEach(() => {
+    jest.clearAllMocks();
+    core.info = jest.fn();
+    core.warning = jest.fn();
+    
+    // Store the original Date
+    originalDate = global.Date;
+  });
+  
+  afterEach(() => {
+    // Restore original Date
+    global.Date = originalDate;
+  });
+  
+  test('should return true when no blackout periods are defined', () => {
+    const result = timeUtils.shouldRunAtCurrentTime('');
+    expect(result).toBe(true);
+  });
+
+  test('should handle day of week blackout periods correctly', () => {
+    // Mock date to Monday (day 1)
+    const mockMonday = new Date(2025, 4, 12); // May 12, 2025 is a Monday
+    global.Date = class extends Date {
+      constructor(...args) {
+        if (args.length === 0) {
+          return mockMonday;
+        }
+        return new originalDate(...args);
+      }
+      getDay() {
+        return 1; // Monday is 1
+      }
+    };
+    
+    // Test for Monday (should be in blackout period)
+    const result1 = timeUtils.shouldRunAtCurrentTime('Mon');
+    expect(result1).toBe(false);
+    expect(core.info).toHaveBeenCalled();
+    
+    jest.clearAllMocks();
+    
+    // Mock date to Tuesday (day 2)
+    const mockTuesday = new Date(2025, 4, 13); // May 13, 2025 is a Tuesday
+    global.Date = class extends Date {
+      constructor(...args) {
+        if (args.length === 0) {
+          return mockTuesday;
+        }
+        return new originalDate(...args);
+      }
+      getDay() {
+        return 2; // Tuesday is 2
+      }
+    };
+    
+    // Test for Monday blackout on Tuesday (should not be in blackout period)
+    const result2 = timeUtils.shouldRunAtCurrentTime('Mon');
+    expect(result2).toBe(true);
+  });
+
+  test('should handle ISO 8601 time range blackout periods correctly', () => {
+    // Mock date to 10:30 AM
+    const mockTime = new Date(2025, 4, 13, 10, 30, 0);
+    global.Date = class extends Date {
+      constructor(...args) {
+        if (args.length === 0) {
+          return mockTime;
+        }
+        return new originalDate(...args);
+      }
+    };
+    
+    // During work hours
+    const result1 = timeUtils.shouldRunAtCurrentTime('T09:00:00/T17:00:00');
+    expect(result1).toBe(false);
+    
+    // Mock date to 8:00 AM (before work hours)
+    const earlyTime = new Date(2025, 4, 13, 8, 0, 0);
+    global.Date = class extends Date {
+      constructor(...args) {
+        if (args.length === 0) {
+          return earlyTime;
+        }
+        return new originalDate(...args);
+      }
+    };
+    
+    // Before work hours
+    const result2 = timeUtils.shouldRunAtCurrentTime('T09:00:00/T17:00:00');
+    expect(result2).toBe(true);
+  });
+
+  test('should handle ISO 8601 date range blackout periods correctly', () => {
+    // Mock date to Dec 25, 2025
+    const christmasDay = new Date(2025, 11, 25);
+    global.Date = class extends Date {
+      constructor(...args) {
+        if (args.length === 0) {
+          return christmasDay;
+        }
+        return new originalDate(...args);
+      }
+    };
+    
+    // During Christmas holiday period
+    const result1 = timeUtils.shouldRunAtCurrentTime('2025-12-24/2026-01-05');
+    expect(result1).toBe(false);
+    
+    // Mock date to Jan 10, 2026 (after holiday period)
+    const afterHoliday = new Date(2026, 0, 10);
+    global.Date = class extends Date {
+      constructor(...args) {
+        if (args.length === 0) {
+          return afterHoliday;
+        }
+        return new originalDate(...args);
+      }
+    };
+    
+    // After holiday period
+    const result2 = timeUtils.shouldRunAtCurrentTime('2025-12-24/2026-01-05');
+    expect(result2).toBe(true);
+  });
+
+  test('should warn about unrecognized blackout period format', () => {
+    const result = timeUtils.shouldRunAtCurrentTime('invalid-format');
+    expect(result).toBe(true);
+    expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('Unrecognized blackout period format'));
+  });
+
+  test('should format date to ISO 8601 string', () => {
+    const date = new Date('2025-05-13T12:00:00Z');
+    const formatted = timeUtils.formatDate(date);
+    expect(formatted).toBe('2025-05-13T12:00:00.000Z');
+  });
+
+  test('should subtract days correctly', () => {
+    const date = new Date('2025-05-13T12:00:00Z');
+    const result = timeUtils.subtractDays(date, 5);
+    expect(result.toISOString()).toBe('2025-05-08T12:00:00.000Z');
+  });
+
+  test('should check if date is after another date', () => {
+    const date1 = new Date('2025-05-13T12:00:00Z');
+    const date2 = new Date('2025-05-10T12:00:00Z');
+    
+    expect(timeUtils.isAfter(date1, date2)).toBe(true);
+    expect(timeUtils.isAfter(date2, date1)).toBe(false);
+  });
+
+  test('should calculate relative time correctly', () => {
+    const now = new Date('2025-05-13T12:00:00Z');
+    global.Date = class extends Date {
+      constructor(...args) {
+        if (args.length === 0) {
+          return now;
+        }
+        return new originalDate(...args);
+      }
+    };
+
+    const dayAgo = new Date('2025-05-12T12:00:00Z');
+    expect(timeUtils.fromNow(dayAgo)).toBe('1 day ago');
+
+    const hoursAgo = new Date('2025-05-13T08:00:00Z');
+    expect(timeUtils.fromNow(hoursAgo)).toBe('4 hours ago');
+
+    const minutesAgo = new Date('2025-05-13T11:30:00Z');
+    expect(timeUtils.fromNow(minutesAgo)).toBe('30 minutes ago');
+
+    const secondsAgo = new Date('2025-05-13T11:59:30Z');
+    expect(timeUtils.fromNow(secondsAgo)).toBe('30 seconds ago');
+  });
+});
