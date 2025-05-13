@@ -1,208 +1,236 @@
 const core = require('@actions/core');
 const github = require('@actions/github');
+const { findMergeablePRs } = require('../src/pullRequests');
+const { shouldRunAtCurrentTime } = require('../src/timeUtils');
+const { applyFilters } = require('../src/filters');
+const { run } = require('../src/index');
 
-// Mock dependencies
+// Mock external dependencies only
 jest.mock('@actions/core');
 jest.mock('@actions/github');
-jest.mock('../src/pullRequests');
-jest.mock('../src/timeUtils');
-jest.mock('../src/filters');
 
-// Mock the run function implementation directly
-jest.mock('../src/index', () => {
-  // Get the real implementations for reference
-  const timeUtils = require('../src/timeUtils');
-  const pullRequests = require('../src/pullRequests');
-  const filters = require('../src/filters');
-  
-  // Create our testable run function
-  const run = async () => {
-    try {
-      // Get inputs
-      const tokenVariable = core.getInput('token');
-      const token = process.env[tokenVariable];
-      
-      if (!token) {
-        throw new Error(`GitHub token not found in environment variable: ${tokenVariable}`);
+describe('run', () => {
+  const mockOctokit = {
+    rest: {
+      pulls: {
+        merge: jest.fn(),
+        list: jest.fn(),
+        get: jest.fn(),
+        listCommits: jest.fn(),
+        listReviews: jest.fn()
+      },
+      repos: {
+        getCombinedStatusForRef: jest.fn()
       }
-      
-      const minimumAgeInDays = parseInt(core.getInput('minimum-age-of-pr'), 10);
-      const blackoutPeriods = core.getInput('blackout-periods');
-      const ignoredDependencies = core.getInput('ignored-dependencies');
-      const ignoredVersions = core.getInput('ignored-versions');
-      const semverFilter = core.getInput('semver-filter');
-      const mergeMethod = core.getInput('merge-method');
-      
-      // Check if the action should run at the current time
-      if (!timeUtils.shouldRunAtCurrentTime(blackoutPeriods)) {
-        core.info('Action is in a blackout period. Skipping execution.');
-        return;
-      }
-      
-      // Create octokit client
-      const octokit = github.getOctokit(token);
-      const context = github.context;
-      
-      // Find potential PRs to merge
-      const pullRequestsFound = await pullRequests.findMergeablePRs(
-        octokit, 
-        context.repo.owner, 
-        context.repo.repo, 
-        minimumAgeInDays
-      );
-      
-      if (pullRequestsFound.length === 0) {
-        core.info('No eligible pull requests found for automerging.');
-        return;
-      }
-      
-      // Apply filters and merge eligible PRs
-      const filteredPRs = filters.applyFilters(
-        pullRequestsFound, 
-        {
-          ignoredDependencies: ignoredDependencies ? ignoredDependencies.split(',').map(d => d.trim()) : [],
-          ignoredVersions: ignoredVersions ? ignoredVersions.split(',').map(v => v.trim()) : [],
-          semverFilter: semverFilter ? semverFilter.split(',').map(s => s.trim()) : ['patch', 'minor']
-        }
-      );
-      
-      if (filteredPRs.length === 0) {
-        core.info('No pull requests passed the filters for automerging.');
-        return;
-      }
-      
-      // Merge eligible PRs
-      for (const pr of filteredPRs) {
-        try {
-          core.info(`Attempting to merge PR #${pr.number}: ${pr.title}`);
-          
-          await octokit.rest.pulls.merge({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            pull_number: pr.number,
-            merge_method: mergeMethod
-          });
-          
-          core.info(`Successfully merged PR #${pr.number}`);
-        } catch (error) {
-          core.warning(`Failed to merge PR #${pr.number}: ${error.message}`);
-        }
-      }
-      
-    } catch (error) {
-      core.setFailed(`Action failed: ${error.message}`);
     }
   };
-  
-  return { run };
-});
 
-// Import modules to be tested
-const { run } = require('../src/index');
-const timeUtils = require('../src/timeUtils');
-const pullRequests = require('../src/pullRequests');
-const filters = require('../src/filters');
+  // Set up the GitHub context
+  github.context = {
+    repo: {
+      owner: 'owner',
+      repo: 'repo'
+    }
+  };
 
-describe('Main Entry Point', () => {
-  let mockOctokit;
-  
+  // Set up the GitHub getOctokit function
+  github.getOctokit = jest.fn().mockReturnValue(mockOctokit);
+
+  // Default input values
+  const defaultInputs = {
+    'token': 'direct-token',
+    'minimum-age-of-pr': '3',
+    'blackout-periods': '',
+    'ignored-dependencies': '',
+    'ignored-versions': '',
+    'semver-filter': '',
+    'merge-method': 'merge'
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
     
-    // Reset process.env and core mocks before each test
-    process.env = {
-      GITHUB_TOKEN: 'mock-token'
-    };
+    // Set up default input values
+    core.getInput = jest.fn(name => defaultInputs[name] || '');
     
-    // Setup core mocks
-    core.getInput = jest.fn().mockImplementation(name => {
-      const inputs = {
-        'token': 'GITHUB_TOKEN',
-        'minimum-age-of-pr': '0',
-        'blackout-periods': '',
-        'ignored-dependencies': '',
-        'ignored-versions': '',
-        'semver-filter': 'patch,minor',
-        'merge-method': 'merge'
-      };
-      
-      return inputs[name];
+    // Set up the mock PR data
+    mockOctokit.rest.pulls.list.mockResolvedValue({
+      data: [
+        { 
+          number: 1, 
+          title: 'Bump lodash from 4.17.20 to 4.17.21',
+          user: { login: 'dependabot[bot]' },
+          created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(), // 4 days old
+          head: { sha: 'abc123' },
+          mergeable: true,
+          mergeable_state: 'clean'
+        }
+      ]
+    });
+
+    // Mock the detailed PR response
+    mockOctokit.rest.pulls.get.mockResolvedValue({
+      data: {
+        mergeable: true,
+        mergeable_state: 'clean'
+      }
+    });
+
+    // Mock the commits list
+    mockOctokit.rest.pulls.listCommits.mockResolvedValue({
+      data: [
+        {
+          sha: 'abc123',
+          author: { login: 'dependabot[bot]' },
+          committer: { login: 'dependabot[bot]' }
+        }
+      ]
+    });
+
+    // Mock the status checks
+    mockOctokit.rest.repos.getCombinedStatusForRef.mockResolvedValue({
+      data: { state: 'success' }
+    });
+
+    // Mock the PR reviews
+    mockOctokit.rest.pulls.listReviews.mockResolvedValue({
+      data: []
     });
     
+    mockOctokit.rest.pulls.merge.mockResolvedValue({});
+    
+    // Set up the core functions
     core.info = jest.fn();
     core.warning = jest.fn();
     core.setFailed = jest.fn();
-    
-    // Mock GitHub context and octokit
-    github.context = {
-      repo: {
-        owner: 'owner',
-        repo: 'repo'
-      }
-    };
-    
-    mockOctokit = {
-      rest: {
-        pulls: {
-          merge: jest.fn().mockResolvedValue({})
-        }
-      }
-    };
-    
-    github.getOctokit = jest.fn().mockReturnValue(mockOctokit);
-    
-    // Mock utility functions
-    timeUtils.shouldRunAtCurrentTime = jest.fn().mockReturnValue(true);
-    pullRequests.findMergeablePRs = jest.fn().mockResolvedValue([]);
-    filters.applyFilters = jest.fn().mockReturnValue([]);
+    core.debug = jest.fn();
   });
-  
-  test('should exit early if in blackout period', async () => {
-    timeUtils.shouldRunAtCurrentTime.mockReturnValue(false);
+
+  test('handles direct token value', async () => {
+    // Override the default token value
+    core.getInput = jest.fn(name => {
+      if (name === 'token') return 'direct-token';
+      return defaultInputs[name] || '';
+    });
+
+    await run();
+    
+    expect(github.getOctokit).toHaveBeenCalledWith('direct-token');
+  });
+
+  test('handles token from environment variable', async () => {
+    // Override the default token value to use environment variable
+    core.getInput = jest.fn(name => {
+      if (name === 'token') return '$ENV_TOKEN';
+      return defaultInputs[name] || '';
+    });
+    
+    // Mock the environment variable
+    const originalEnv = process.env;
+    process.env = { ...originalEnv, ENV_TOKEN: 'token-from-env' };
     
     await run();
     
-    expect(timeUtils.shouldRunAtCurrentTime).toHaveBeenCalledWith(expect.any(String));
-    expect(pullRequests.findMergeablePRs).not.toHaveBeenCalled();
+    expect(github.getOctokit).toHaveBeenCalledWith('token-from-env');
+    
+    // Restore environment
+    process.env = originalEnv;
+  });
+
+  test('throws error when token is missing', async () => {
+    // Override the token value to be empty
+    core.getInput = jest.fn(name => {
+      if (name === 'token') return '';
+      return defaultInputs[name] || '';
+    });
+    
+    await run();
+    
+    expect(core.setFailed).toHaveBeenCalledWith(
+      expect.stringContaining('GitHub token not provided')
+    );
+  });
+
+  test('should exit early if in blackout period', async () => {
+    // Set a blackout period that includes the current time
+    const now = new Date();
+    const startTime = new Date(now);
+    startTime.setHours(now.getHours() - 1);
+    const endTime = new Date(now);
+    endTime.setHours(now.getHours() + 1);
+    
+    const blackoutPeriod = `${startTime.toISOString()}/${endTime.toISOString()}`;
+    
+    // Override the blackout periods input
+    core.getInput = jest.fn(name => {
+      if (name === 'blackout-periods') return blackoutPeriod;
+      return defaultInputs[name] || '';
+    });
+    
+    await run();
+    
+    expect(mockOctokit.rest.pulls.list).not.toHaveBeenCalled();
     expect(core.info).toHaveBeenCalledWith(expect.stringContaining('blackout period'));
   });
   
   test('should exit early if no pull requests found', async () => {
-    pullRequests.findMergeablePRs.mockResolvedValue([]);
+    // Override the pull requests list to return empty
+    mockOctokit.rest.pulls.list.mockResolvedValue({ data: [] });
     
     await run();
     
-    expect(pullRequests.findMergeablePRs).toHaveBeenCalled();
-    expect(filters.applyFilters).not.toHaveBeenCalled();
+    expect(mockOctokit.rest.pulls.list).toHaveBeenCalled();
     expect(core.info).toHaveBeenCalledWith(expect.stringContaining('No eligible pull requests found'));
   });
   
-  test('should exit early if no pull requests pass filters', async () => {
-    pullRequests.findMergeablePRs.mockResolvedValue([{ number: 1 }]);
-    filters.applyFilters.mockReturnValue([]);
+  test('should filter out pull requests based on filters', async () => {
+    // Setup mocks to correctly pass through findMergeablePRs
+    mockOctokit.rest.pulls.list.mockResolvedValue({
+      data: [
+        { 
+          number: 1, 
+          title: 'Bump lodash from 4.17.20 to 4.17.21',
+          user: { login: 'dependabot[bot]' },
+          created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(), // 4 days old
+          head: { sha: 'abc123' },
+          mergeable: true,
+          mergeable_state: 'clean'
+        }
+      ]
+    });
+    
+    // Override the ignored-dependencies input
+    core.getInput = jest.fn(name => {
+      if (name === 'ignored-dependencies') return 'lodash';
+      return defaultInputs[name] || '';
+    });
     
     await run();
     
-    expect(pullRequests.findMergeablePRs).toHaveBeenCalled();
-    expect(filters.applyFilters).toHaveBeenCalled();
+    expect(mockOctokit.rest.pulls.list).toHaveBeenCalled();
+    expect(mockOctokit.rest.pulls.merge).not.toHaveBeenCalled();
     expect(core.info).toHaveBeenCalledWith(expect.stringContaining('No pull requests passed the filters'));
   });
   
   test('should attempt to merge eligible pull requests', async () => {
-    const mockPRs = [
-      {
-        number: 1,
-        title: 'Bump lodash from 4.17.20 to 4.17.21'
-      }
-    ];
-    
-    pullRequests.findMergeablePRs.mockResolvedValue(mockPRs);
-    filters.applyFilters.mockReturnValue(mockPRs);
+    // Setup mocks to correctly pass through findMergeablePRs
+    mockOctokit.rest.pulls.list.mockResolvedValue({
+      data: [
+        { 
+          number: 1, 
+          title: 'Bump axios from 0.21.0 to 0.21.1',
+          user: { login: 'dependabot[bot]' },
+          created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
+          head: { sha: 'abc123' },
+          mergeable: true,
+          mergeable_state: 'clean'
+        }
+      ]
+    });
     
     await run();
     
-    expect(pullRequests.findMergeablePRs).toHaveBeenCalled();
-    expect(filters.applyFilters).toHaveBeenCalled();
+    expect(mockOctokit.rest.pulls.list).toHaveBeenCalled();
     expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledWith({
       owner: 'owner',
       repo: 'repo',
@@ -213,16 +241,22 @@ describe('Main Entry Point', () => {
   });
   
   test('should handle errors when merging pull requests', async () => {
-    const mockPRs = [
-      {
-        number: 1,
-        title: 'Bump lodash from 4.17.20 to 4.17.21'
-      }
-    ];
+    // Setup mocks to correctly pass through findMergeablePRs
+    mockOctokit.rest.pulls.list.mockResolvedValue({
+      data: [
+        { 
+          number: 1, 
+          title: 'Bump axios from 0.21.0 to 0.21.1',
+          user: { login: 'dependabot[bot]' },
+          created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
+          head: { sha: 'abc123' },
+          mergeable: true,
+          mergeable_state: 'clean'
+        }
+      ]
+    });
     
-    pullRequests.findMergeablePRs.mockResolvedValue(mockPRs);
-    filters.applyFilters.mockReturnValue(mockPRs);
-    
+    // Make the merge function throw an error
     mockOctokit.rest.pulls.merge.mockRejectedValue(new Error('Merge failed'));
     
     await run();
@@ -232,10 +266,24 @@ describe('Main Entry Point', () => {
   });
   
   test('should fail if token is not found', async () => {
-    process.env = {}; // Empty environment
+    // Override the token value to use a non-existent environment variable
+    core.getInput = jest.fn(name => {
+      if (name === 'token') return '$NONEXISTENT_TOKEN';
+      return defaultInputs[name] || '';
+    });
+    
+    // Save original env and create a new empty env
+    const originalEnv = process.env;
+    process.env = {};
     
     await run();
     
-    expect(core.setFailed).toHaveBeenCalledWith(expect.stringContaining('GitHub token not found'));
+    // The error should be captured in the catch block and passed to setFailed
+    expect(core.setFailed).toHaveBeenCalledWith(
+      expect.stringContaining('GitHub token not provided or found in environment variable')
+    );
+    
+    // Restore environment
+    process.env = originalEnv;
   });
 });

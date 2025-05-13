@@ -7,11 +7,21 @@ const { applyFilters } = require('./filters');
 async function run() {
   try {
     // Get inputs
-    const tokenVariable = core.getInput('token');
-    const token = process.env[tokenVariable];
+    const tokenInput = core.getInput('token');
+    let token = tokenInput;
+    
+    // Check if the input is referencing an environment variable
+    if (tokenInput.startsWith('$')) {
+      const envVarName = tokenInput.substring(1);
+      if (process.env[envVarName]) {
+        token = process.env[envVarName];
+      } else {
+        throw new Error(`GitHub token not provided or found in environment variable ${envVarName}`);
+      }
+    }
     
     if (!token) {
-      throw new Error(`GitHub token not found in environment variable: ${tokenVariable}`);
+      throw new Error(`GitHub token not provided`);
     }
     
     const minimumAgeInDays = parseInt(core.getInput('minimum-age-of-pr'), 10);
