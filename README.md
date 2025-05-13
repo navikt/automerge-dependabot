@@ -18,7 +18,6 @@ This action automatically merges pull requests created by Dependabot with a set 
 **Required** The name of the environment variable that contains the GitHub token. Default: `GITHUB_TOKEN`.
 
 The token requires the following permissions:
-- `pull-requests: read` - To fetch and analyze Dependabot pull requests
 - `pull-requests: write` - To merge eligible pull requests
 - `contents: write` - To allow the merge operation to modify repository contents
 
