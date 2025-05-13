@@ -18,8 +18,9 @@ This action automatically merges pull requests created by Dependabot with a set 
 **Required** The name of the environment variable that contains the GitHub token. Default: `GITHUB_TOKEN`.
 
 The token requires the following permissions:
-- `pull-requests: write` - To merge eligible pull requests
 - `contents: write` - To allow the merge operation to modify repository contents
+
+Note: Using GITHUB_TOKEN will not trigger on.push events, recommend using a (github app token)[https://github.com/actions/create-github-app-token]. See example below.
 
 ### `minimum-age-of-pr`
 
@@ -73,11 +74,11 @@ jobs:
       - name: Automerge Dependabot PRs
         uses: navikt/automerge-dependabot@v1
         with:
-          token: 'GITHUB_TOKEN'
+          token: ${{ github.token }}
           minimum-age-of-pr: '3'
 ```
 
-Advanced example with all options:
+Advanced example with all options and github app token::
 
 ```yaml
 name: Automerge Dependabot PRs
@@ -91,10 +92,15 @@ jobs:
   automerge:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.PRIVATE_KEY }}
       - name: Automerge Dependabot PRs
         uses: navikt/automerge-dependabot@v1
         with:
-          token: 'MY_CUSTOM_TOKEN'
+          token: ${{ steps.app-token.outputs.token }}
           minimum-age-of-pr: '2'
           blackout-periods: 'Sat,Sun,Dec 24-Jan 5,9:00-10:00'
           ignored-dependencies: 'react,react-dom,webpack'
