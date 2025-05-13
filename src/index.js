@@ -21,7 +21,7 @@ async function run() {
     }
     
     if (!token) {
-      throw new Error(`GitHub token not provided`);
+      throw new Error('GitHub token not provided');
     }
     
     const minimumAgeInDays = parseInt(core.getInput('minimum-age-of-pr'), 10);
