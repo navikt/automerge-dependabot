@@ -82,8 +82,8 @@ async function findMergeablePRs(octokit, owner, repo, minimumAgeInDays) {
       ref: pr.head.sha
     });
     
-    if (combinedStatus.state !== 'success') {
-      core.debug(`PR #${pr.number} has pending or failing status checks`);
+    if (combinedStatus.state === 'failure') {
+      core.debug(`PR #${pr.number} has failing status checks`);
       continue;
     }
     
