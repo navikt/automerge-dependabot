@@ -111,14 +111,21 @@ jobs:
 
 ## How It Works
 
-1. The action identifies open pull requests created by Dependabot
-2. It filters pull requests based on:
-   - Minimum age requirement
+1. Checks for the presence of token.
+2. Makes sure we are not in a blackout period.
+3. Fetches open pull requests from the repository.
+4. Filters pull requests based on:
+   - The pull request author is Dependabot
+   - The pull request is within the minimum age
    - Whether it's mergeable (passing checks, no conflicts)
-   - Not in blackout period
-   - Not an ignored dependency or version
-   - Matches allowed semver change levels
-3. Eligible pull requests are automatically merged using the specified merge method
+   - Ensures all commits in the PR are from Dependabot
+   - No failing status checks
+   - No blocking pull request reviews  
+5. Extracts dependency information and filters based on:
+   - Ignored dependencies
+   - Ignored versions
+   - Semantic versioning filters
+6. Eligible pull requests are automatically merged using the specified merge method
 
 ## License
 

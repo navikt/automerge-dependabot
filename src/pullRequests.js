@@ -109,11 +109,27 @@ async function findMergeablePRs(octokit, owner, repo, minimumAgeInDays) {
     }
     
     // All checks passed, PR is eligible for auto-merging
-    eligiblePRs.push({
+    const prData = {
       ...pr,
-      prDetails,
-      dependencyInfo: extractDependencyInfo(pr.title)
-    });
+      prDetails
+    };
+
+    // Check if PR title matches multiple dependency pattern
+    const isMultipleDependencyPR = pr.title.match(/Bump ([^ ]+) and ([^ ]+) in ([^ ]+)/) || 
+                                  pr.title.match(/Bump the ([^ ]+)( group| across| with| in| updates|[ ]+)+/);
+
+    if (isMultipleDependencyPR) {
+      prData.dependencyInfoList = extractMultipleDependencyInfo(pr.title, pr.body);
+      // If no dependencies could be extracted, fall back to single dependency info
+      if (prData.dependencyInfoList.length === 0) {
+        prData.dependencyInfo = extractDependencyInfo(pr.title);
+      }
+    } else {
+      // Single dependency update
+      prData.dependencyInfo = extractDependencyInfo(pr.title);
+    }
+
+    eligiblePRs.push(prData);
   }
   
   core.info(`Found ${eligiblePRs.length} eligible pull requests for auto-merging`);
@@ -166,6 +182,115 @@ function extractDependencyInfo(title) {
   };
 }
 
+/**
+ * Extract information from multiple dependencies from PR title and body, returns list of dependency information
+ * 
+ * @param {string} title - Pull request title
+ * @param {string} body - Pull request body
+ * @returns {Array} List of dependency information
+ */
+function extractMultipleDependencyInfo(title, body) {
+  // Expected format: "Bump dependency-A and dependency-B in /my-group"
+  const matchTwoDeps = title.match(/Bump ([^ ]+) and ([^ ]+) in ([^ ]+)/);
+
+  if(matchTwoDeps) {
+    // Extract dependency information in the body for each dependency
+    // Expected format: Updates dependency-A from x.y.z to x.y.z
+    const bodyMatches = body.match(/Updates ([^ ]+) from ([0-9.]+) to ([0-9.]+)/g);
+    if (bodyMatches) {
+      return bodyMatches.map(match => {
+        const updateMatch = match.match(/Updates ([^ ]+) from ([0-9.]+) to ([0-9.]+)/);
+        if (!updateMatch) return null;
+        
+        const [, name, fromVersion, toVersion] = updateMatch;
+        // Determine semver change level
+        let semverChange = 'unknown';
+        
+        // Common version formats
+        const fromParts = fromVersion.split('.').map(p => parseInt(p, 10));
+        const toParts = toVersion.split('.').map(p => parseInt(p, 10));
+        
+        if (fromParts.length >= 3 && toParts.length >= 3) {
+          if (toParts[0] > fromParts[0]) {
+            semverChange = 'major';
+          } else if (toParts[1] > fromParts[1]) {
+            semverChange = 'minor';
+          } else if (toParts[2] > fromParts[2]) {
+            semverChange = 'patch';
+          }
+        }
+        return {
+          name,
+          fromVersion,
+          toVersion,
+          semverChange
+        };
+      }).filter(item => item !== null);
+    }
+    return [];
+  }
+
+  // Expected format: "Bump the dependabot-group across X directory with Z updates"
+  const matchDependencyGroup = title.match(/Bump the ([^ ]+)( group| across| with| in| updates|[ ]+)+/);
+  if (matchDependencyGroup) {
+    // Extract dependency information from the markdown table in the PR body
+    // Match only table rows with exactly 3 cells (Package, From, To)
+    const tableRegex = /\|\s*([^|\n]+?)\s*\|\s*`?([^`|\n]+)`?\s*\|\s*`?([^`|\n]+)`?\s*\|/g;
+    const dependencies = [];
+    
+    let tableMatch;
+    // Skip the header row with column names and the formatting row (with ---)
+    let rowCount = 0;
+    
+    while ((tableMatch = tableRegex.exec(body)) !== null) {
+      // Skip the header row and formatting row
+      if (rowCount < 2) {
+        rowCount++;
+        continue;
+      }
+      
+      // Extract package name, removing any markdown links
+      let [, packageName, fromVersion, toVersion] = tableMatch;
+      // Clean up package name (remove markdown links if present)
+      packageName = packageName.replace(/\[([^\]]+)\]\([^)]+\)/, '$1').trim();
+      
+      // Determine semver change level
+      let semverChange = 'unknown';
+      
+      // Clean up versions (remove backticks if present)
+      fromVersion = fromVersion.trim().replace(/`/g, '');
+      toVersion = toVersion.trim().replace(/`/g, '');
+      
+      // Common version formats
+      const fromParts = fromVersion.split('.').map(p => parseInt(p, 10));
+      const toParts = toVersion.split('.').map(p => parseInt(p, 10));
+      
+      if (fromParts.length >= 3 && toParts.length >= 3) {
+        if (toParts[0] > fromParts[0]) {
+          semverChange = 'major';
+        } else if (toParts[1] > fromParts[1]) {
+          semverChange = 'minor';
+        } else if (toParts[2] > fromParts[2]) {
+          semverChange = 'patch';
+        }
+      }
+      
+      dependencies.push({
+        name: packageName,
+        fromVersion,
+        toVersion,
+        semverChange
+      });
+    }
+    
+    return dependencies;
+  }
+
+  return [];
+}
+
 module.exports = {
-  findMergeablePRs
+  findMergeablePRs,
+  extractDependencyInfo,
+  extractMultipleDependencyInfo
 };
