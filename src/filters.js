@@ -25,40 +25,89 @@ function applyFilters(pullRequests, filters) {
       return false;
     }
     
-    const { dependencyInfo } = pr;
-    const { name, toVersion, semverChange } = dependencyInfo;
-    
-    // Skip if no dependency info could be extracted
-    if (!name || !toVersion || !semverChange) {
-      core.debug(`PR #${pr.number}: Skipping - Could not extract dependency info from title "${pr.title}"`);
-      return false;
+    // Check if PR contains multiple dependencies or a single dependency
+    if (pr.dependencyInfoList && pr.dependencyInfoList.length > 0) {
+      // For PRs with multiple dependencies, ALL dependencies must pass the filters
+      for (const dependencyInfo of pr.dependencyInfoList) {
+        const { name, toVersion, semverChange } = dependencyInfo || {};
+        
+        // Skip the entire PR if any dependency info is incomplete
+        if (!name || !toVersion || !semverChange) {
+          core.debug(`PR #${pr.number}: Skipping - Dependency missing info in multiple dependency PR`);
+          return false;
+        }
+        
+        // Skip the entire PR if any dependency is in the ignored list
+        if (ignoredDependencies.some(dep => dep === name)) {
+          core.debug(`PR #${pr.number}: Skipping - Dependency "${name}" is in ignored list`);
+          return false;
+        }
+        
+        // Skip the entire PR if any version is in the ignored list
+        const versionMatches = ignoredVersions.some(ignoredVersion => {
+          const [ignoredName, ignoredVer] = ignoredVersion.split('@');
+          return ignoredName === name && (ignoredVer === toVersion || ignoredVer === '*');
+        });
+        
+        if (versionMatches) {
+          core.debug(`PR #${pr.number}: Skipping - Version "${name}@${toVersion}" is in ignored list`);
+          return false;
+        }
+        
+        // Skip the entire PR if any semver change level is not allowed
+        if (!semverFilter.includes(semverChange)) {
+          core.debug(`PR #${pr.number}: Skipping - Semver change "${semverChange}" for "${name}" is not in allowed list: ${semverFilter.join(', ')}`);
+          return false;
+        }
+      }
+      
+      // If we got here, all dependencies passed all filters
+      core.debug(`PR #${pr.number}: All ${pr.dependencyInfoList.length} dependencies passed filters`);
+      return true;
+    } else {
+      // Handle single dependency PR
+      const { dependencyInfo } = pr;
+      
+      // Skip if dependencyInfo is undefined
+      if (!dependencyInfo) {
+        core.debug(`PR #${pr.number}: Skipping - No dependency info available`);
+        return false;
+      }
+      
+      const { name, toVersion, semverChange } = dependencyInfo;
+      
+      // Skip if no dependency info could be extracted
+      if (!name || !toVersion || !semverChange) {
+        core.debug(`PR #${pr.number}: Skipping - Could not extract dependency info from title "${pr.title}"`);
+        return false;
+      }
+      
+      // Check if dependency is in ignored list
+      if (ignoredDependencies.some(dep => dep === name)) {
+        core.debug(`PR #${pr.number}: Skipping - Dependency "${name}" is in ignored list`);
+        return false;
+      }
+      
+      // Check if specific version is in ignored list
+      const versionMatches = ignoredVersions.some(ignoredVersion => {
+        const [ignoredName, ignoredVer] = ignoredVersion.split('@');
+        return ignoredName === name && (ignoredVer === toVersion || ignoredVer === '*');
+      });
+      
+      if (versionMatches) {
+        core.debug(`PR #${pr.number}: Skipping - Version "${name}@${toVersion}" is in ignored list`);
+        return false;
+      }
+      
+      // Check semver change level
+      if (!semverFilter.includes(semverChange)) {
+        core.debug(`PR #${pr.number}: Skipping - Semver change "${semverChange}" is not in allowed list: ${semverFilter.join(', ')}`);
+        return false;
+      }
+      
+      core.debug(`PR #${pr.number}: Passed all filters - ${name}@${toVersion} (${semverChange} change)`);
+      return true;
     }
-    
-    // Check if dependency is in ignored list
-    if (ignoredDependencies.some(dep => dep === name)) {
-      core.debug(`PR #${pr.number}: Skipping - Dependency "${name}" is in ignored list`);
-      return false;
-    }
-    
-    // Check if specific version is in ignored list
-    const versionMatches = ignoredVersions.some(ignoredVersion => {
-      const [ignoredName, ignoredVer] = ignoredVersion.split('@');
-      return ignoredName === name && (ignoredVer === toVersion || ignoredVer === '*');
-    });
-    
-    if (versionMatches) {
-      core.debug(`PR #${pr.number}: Skipping - Version "${name}@${toVersion}" is in ignored list`);
-      return false;
-    }
-    
-    // Check semver change level
-    if (!semverFilter.includes(semverChange)) {
-      core.debug(`PR #${pr.number}: Skipping - Semver change "${semverChange}" is not in allowed list: ${semverFilter.join(', ')}`);
-      return false;
-    }
-    
-    core.debug(`PR #${pr.number}: Passed all filters - ${name}@${toVersion} (${semverChange} change)`);
-    return true;
   });
 }
 
