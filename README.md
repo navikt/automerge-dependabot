@@ -172,36 +172,18 @@ When using multiple dependency PRs (where Dependabot updates several packages at
 
 When a Dependabot PR is detected, the version changes are processed using this decision flow:
 
-```
-                       ┌─────────────────────┐
-                       │    Dependabot PR    │
-                       └──────────┬──────────┘
-                                  │
-                       ┌──────────▼──────────┐
-         ┌── No ───────┤ In ignored-packages?│
-         │             └──────────┬──────────┘
-         │                        │ No
-┌────────▼────────┐    ┌──────────▼──────────┐
-│  Skip Package   │    │In ignored-versions? │─── Yes ──┐
-└─────────────────┘    └──────────┬──────────┘          │
-         ▲                        │ No                  │
-         │             ┌──────────▼──────────┐          │
-         └── Yes ──────┤ In always-allow?    │          │
-                       └──────────┬──────────┘          │
-                                  │ No                  │
-                       ┌──────────▼──────────┐          │
-                       │  Determine semver   │          │
-                       │    change level     │          │
-                       └──────────┬──────────┘          │
-                                  │                     │
-                       ┌──────────▼──────────┐          │
-                       │    Level in the     │          │
-                       │   semver-filter?    │─── No ───┘
-                       └──────────┬──────────┘
-                                  │ Yes
-                       ┌──────────▼──────────┐
-                       │   Merge Package     │
-                       └─────────────────────┘
+```mermaid
+flowchart TD
+    A[Dependabot PR] --> B{In ignored-packages?}
+    B -->|Yes| C[Skip Package]
+    B -->|No| D{In ignored-versions?}
+    D -->|Yes| C
+    D -->|No| E{In always-allow?}
+    E -->|Yes| F[Merge Package]
+    E -->|No| G[Determine semver change level]
+    G --> H{Level in the semver-filter?}
+    H -->|Yes| F
+    H -->|No| C
 ```
 
 This diagram shows how the action determines whether to merge a Dependabot PR based on the package name, version, and semver change level.
