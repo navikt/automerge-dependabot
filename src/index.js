@@ -37,7 +37,7 @@ async function run() {
     if (!shouldRunAtCurrentTime(blackoutPeriods)) {
       core.info('Action is in a blackout period. Skipping execution.');
       
-      // Add minimal summary about blackout period
+      // Add summary with blackout period information
       const summaryOptions = {
         ignoredDependencies: ignoredDependencies ? ignoredDependencies.split(',').map(d => d.trim()) : [],
         alwaysAllow: alwaysAllow ? alwaysAllow.split(',').map(d => d.trim()) : [],
@@ -72,11 +72,10 @@ async function run() {
     // Make sure to reset the filter reasons before each run to avoid stale data
     resetFilterReasons();
     
-    // Add information to GitHub workflow summary - do this regardless of whether PRs were found
-    await addWorkflowSummary(pullRequests, [], filterOptions);
-    
     if (pullRequests.length === 0) {
       core.info('No eligible pull requests found for automerging.');
+      // Add workflow summary with applied filters even if no PRs were found
+      await addWorkflowSummary([], [], filterOptions);
       return;
     }
     
@@ -86,7 +85,7 @@ async function run() {
       filterOptions
     );
     
-    // Update the workflow summary with the filtered results
+    // Add the workflow summary with the filtered results
     await addWorkflowSummary(pullRequests, filteredPRs, filterOptions);
     
     if (filteredPRs.length === 0) {

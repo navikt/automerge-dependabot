@@ -79,17 +79,25 @@ async function addWorkflowSummary(eligiblePRs, filteredPRs, filters) {
     await core.summary.addRaw(createSectionTitle('Pull Request Summary') + '\n\n');
     summaryContent += `${createSectionTitle('Pull Request Summary')}\n\n`;
     
-    if (eligiblePRs.length === 0) {
-      const noPRsMessage = 'No eligible PRs found.';
+    if (eligiblePRs.length === 0 && filteredPRs.length === 0) {
+      // Check if it's a blackout period
+      const { shouldRunAtCurrentTime } = require('./timeUtils');
+      const blackoutPeriods = core.getInput('blackout-periods');
+      const isInBlackoutPeriod = blackoutPeriods && !shouldRunAtCurrentTime(blackoutPeriods);
       
-      await core.summary.addRaw(noPRsMessage + '\n\n');
-      summaryContent += `${noPRsMessage}\n\n`;
+      let message = 'No eligible PRs found.';
+      if (isInBlackoutPeriod) {
+        message = 'Action is currently in a blackout period. No PRs will be merged during this time.';
+      }
+      
+      await core.summary.addRaw(message + '\n\n');
+      summaryContent += `${message}\n\n`;
       
       // Extract early filter reasons from pullRequests module to show why PRs weren't eligible
       const { getEarlyFilterReasons } = require('./pullRequests');
       const earlyReasons = getEarlyFilterReasons();
       
-      if (earlyReasons.size > 0) {
+      if (earlyReasons && earlyReasons.size > 0) {
         const reasonsHeader = 'PR filtering explanation:';
         await core.summary.addRaw(reasonsHeader + '\n\n');
         summaryContent += `${reasonsHeader}\n\n`;
