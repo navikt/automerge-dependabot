@@ -5,24 +5,28 @@ registries:
     url: https://maven.pkg.github.com/navikt
     username: x-access-token
     password: ${{secrets.READER_TOKEN}}
+  npm:
+    type: npm-registry
+    url: https://npm.pkg.github.com/
+    username: x-access-token
+    password: ${{secrets.READER_TOKEN}}
 updates:
-  - package-ecosystem: maven
+  - package-ecosystem: "maven"
     directory: "/"
     schedule:
-      interval: daily
+      interval: "daily"
     registries:
-      - mvn
+      - "mvn"
     groups:
       maven:
         patterns:
           - "*"
-updates:
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "08:00"
+      interval: "daily"
+    registries:
+      - "npm"
     groups:
       npm:
         patterns:
@@ -30,10 +34,4 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "08:00"
-    groups:
-      github:
-        patterns:
-          - "*"
+      interval: "daily"
