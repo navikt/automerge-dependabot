@@ -74,6 +74,8 @@ Comma-separated list of: `major`, `minor`, `patch`. Default: `patch,minor`.
 The merge method to use when merging pull requests. Default: `merge`.
 Possible values: `merge`, `squash`, `rebase`.
 
+Note: If a repository uses GitHub branch protection with merge queues, only the `merge` method is supported. The action will warn you if you're trying to use `squash` or `rebase` with a repository that has merge queues enabled.
+
 ## Example usage
 
 Basic example:

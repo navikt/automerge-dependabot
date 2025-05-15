@@ -33,7 +33,7 @@ inputs:
     required: false
     default: 'patch,minor'
   merge-method:
-    description: The merge method to use (merge, squash, rebase)
+    description: The merge method to use (merge, squash, rebase). Note that only 'merge' method is supported with GitHub merge queues.
     required: false
     default: 'merge'
 

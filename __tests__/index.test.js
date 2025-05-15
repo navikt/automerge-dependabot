@@ -287,6 +287,42 @@ describe('run', () => {
     process.env = originalEnv;
   });
   
+  test('should warn when merge queue is required but method is not merge', async () => {
+    // Setup mocks to correctly pass through findMergeablePRs
+    mockOctokit.rest.pulls.list.mockResolvedValue({
+      data: [
+        { 
+          number: 1, 
+          title: 'Bump axios from 0.21.0 to 0.21.1',
+          user: { login: 'dependabot[bot]' },
+          created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
+          head: { sha: 'abc123' },
+          mergeable: true,
+          mergeable_state: 'clean'
+        }
+      ]
+    });
+    
+    // Override the merge method to use squash
+    core.getInput = jest.fn(name => {
+      if (name === 'merge-method') return 'squash';
+      return defaultInputs[name] || '';
+    });
+    
+    // Make the merge function throw an error that looks like a merge queue error
+    mockOctokit.rest.pulls.merge.mockRejectedValue({
+      status: 405,
+      message: 'Pull request requires merge queue'
+    });
+    
+    await run();
+    
+    // Should detect merge queue error and warn about it
+    expect(mockOctokit.rest.pulls.merge).toHaveBeenCalled();
+    expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('may require a merge queue, but merge method is set to'));
+    expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('change the \'merge-method\' input to \'merge\''));
+  });
+  
   describe('Multi-dependency PR handling', () => {
     test('should attempt to merge eligible multi-dependency pull requests', async () => {
       // Setup mock for a multi-dependency PR

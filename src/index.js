@@ -99,14 +99,34 @@ async function run() {
       try {
         core.info(`Attempting to merge PR #${pr.number}: ${pr.title}`);
         
-        await octokit.rest.pulls.merge({
-          owner: context.repo.owner,
-          repo: context.repo.repo,
-          pull_number: pr.number,
-          merge_method: mergeMethod
-        });
-        
-        core.info(`Successfully merged PR #${pr.number}`);
+        try {
+          await octokit.rest.pulls.merge({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            pull_number: pr.number,
+            merge_method: mergeMethod
+          });
+          
+          core.info(`Successfully merged PR #${pr.number}`);
+        } catch (mergeError) {
+          // Check for merge queue warnings in the error message
+          const isMergeQueueError = 
+            (mergeError.message && (
+              mergeError.message.toLowerCase().includes('merge queue') || 
+              mergeError.message.toLowerCase().includes('branch protection') ||
+              mergeError.message.toLowerCase().includes('required status check')
+            )) ||
+            (mergeError.status === 405 || mergeError.status === 422);
+          
+          // If this appears to be a merge queue error and merge method isn't 'merge'
+          if (isMergeQueueError && mergeMethod !== 'merge') {
+            core.warning(`PR #${pr.number} may require a merge queue, but merge method is set to '${mergeMethod}'. Only 'merge' method is supported with merge queues.`);
+            core.warning('To use merge queues, change the \'merge-method\' input to \'merge\' in your workflow configuration.');
+          }
+          
+          // Always throw the error since we're not actually handling merge queues
+          throw mergeError;
+        }
       } catch (error) {
         core.warning(`Failed to merge PR #${pr.number}: ${error.message}`);
       }
