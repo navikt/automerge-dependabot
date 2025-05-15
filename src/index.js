@@ -36,6 +36,16 @@ async function run() {
     // Check if the action should run at the current time
     if (!shouldRunAtCurrentTime(blackoutPeriods)) {
       core.info('Action is in a blackout period. Skipping execution.');
+      
+      // Add minimal summary about blackout period
+      const summaryOptions = {
+        ignoredDependencies: ignoredDependencies ? ignoredDependencies.split(',').map(d => d.trim()) : [],
+        alwaysAllow: alwaysAllow ? alwaysAllow.split(',').map(d => d.trim()) : [],
+        ignoredVersions: ignoredVersions ? ignoredVersions.split(',').map(v => v.trim()) : [],
+        semverFilter: semverFilter ? semverFilter.split(',').map(s => s.trim()) : ['patch', 'minor']
+      };
+      await addWorkflowSummary([], [], summaryOptions);
+      
       return;
     }
     
@@ -51,12 +61,7 @@ async function run() {
       minimumAgeInDays
     );
     
-    if (pullRequests.length === 0) {
-      core.info('No eligible pull requests found for automerging.');
-      return;
-    }
-    
-    // Apply filters and merge eligible PRs
+    // Apply filters and prepare filter options even if no PRs are found
     const filterOptions = {
       ignoredDependencies: ignoredDependencies ? ignoredDependencies.split(',').map(d => d.trim()) : [],
       alwaysAllow: alwaysAllow ? alwaysAllow.split(',').map(d => d.trim()) : [],
@@ -64,12 +69,21 @@ async function run() {
       semverFilter: semverFilter ? semverFilter.split(',').map(s => s.trim()) : ['patch', 'minor']
     };
     
+    // Add information to GitHub workflow summary - do this regardless of whether PRs were found
+    await addWorkflowSummary(pullRequests, [], filterOptions);
+    
+    if (pullRequests.length === 0) {
+      core.info('No eligible pull requests found for automerging.');
+      return;
+    }
+    
+    // Apply filters to eligible PRs
     const filteredPRs = applyFilters(
       pullRequests, 
       filterOptions
     );
     
-    // Add information to GitHub workflow summary
+    // Update the workflow summary with the filtered results
     await addWorkflowSummary(pullRequests, filteredPRs, filterOptions);
     
     if (filteredPRs.length === 0) {

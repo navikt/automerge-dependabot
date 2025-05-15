@@ -79,8 +79,23 @@ async function addWorkflowSummary(eligiblePRs, filteredPRs, filters) {
     await core.summary.addRaw(createSectionTitle('Pull Request Summary'));
     summaryContent += `${createSectionTitle('Pull Request Summary')}\n`;
     
-    await core.summary.addRaw(`Found ${eligiblePRs.length} eligible PR(s), ${filteredPRs.length} will be merged.`);
-    summaryContent += `Found ${eligiblePRs.length} eligible PR(s), ${filteredPRs.length} will be merged.\n\n`;
+    if (eligiblePRs.length === 0) {
+      const noPRsMessage = 'No eligible PRs found. This could be due to:';
+      const reasons = [
+        '- No open Dependabot PRs',
+        '- PRs are too recent (less than the minimum age requirement)',
+        '- PRs have failing status checks',
+        '- PRs have merge conflicts'
+      ];
+      
+      await core.summary.addRaw(noPRsMessage);
+      await core.summary.addRaw(reasons.join('\n'));
+      
+      summaryContent += `${noPRsMessage}\n${reasons.join('\n')}\n\n`;
+    } else {
+      await core.summary.addRaw(`Found ${eligiblePRs.length} eligible PR(s), ${filteredPRs.length} will be merged.`);
+      summaryContent += `Found ${eligiblePRs.length} eligible PR(s), ${filteredPRs.length} will be merged.\n\n`;
+    }
     
     // Add PR details for filtered PRs
     if (filteredPRs.length > 0) {
