@@ -115,7 +115,7 @@ async function findMergeablePRs(octokit, owner, repo, minimumAgeInDays) {
     };
 
     // Check if PR title matches multiple dependency pattern
-    const isMultipleDependencyPR = pr.title.match(/Bump ([^ ]+) and ([^ ]+) in ([^ ]+)/) || 
+    const isMultipleDependencyPR = pr.title.match(/Bump ([^ ]+) and ([^ ]+)( in ([^ ]+))?/) || 
                                   pr.title.match(/Bump the ([^ ]+)( group| across| with| in| updates|[ ]+)+/);
 
     if (isMultipleDependencyPR) {
@@ -190,16 +190,19 @@ function extractDependencyInfo(title) {
  * @returns {Array} List of dependency information
  */
 function extractMultipleDependencyInfo(title, body) {
-  // Expected format: "Bump dependency-A and dependency-B in /my-group"
-  const matchTwoDeps = title.match(/Bump ([^ ]+) and ([^ ]+) in ([^ ]+)/);
+  // Look for any format that mentions bumping two dependencies
+  // Format 1: "Bump dependency-A and dependency-B in /my-group"
+  // Format 2: "Bump cookie and express" (without the "in" part)
+  const matchTwoDeps = title.match(/Bump ([^ ]+) and ([^ ]+)( in ([^ ]+))?/);
 
   if(matchTwoDeps) {
     // Extract dependency information in the body for each dependency
     // Expected format: Updates dependency-A from x.y.z to x.y.z
-    const bodyMatches = body.match(/Updates ([^ ]+) from ([0-9.]+) to ([0-9.]+)/g);
+    // Alternative format: Updates `dependency-A` from x.y.z to x.y.z (with backticks)
+    const bodyMatches = body.match(/Updates [`']?([^`'\s]+)[`']? from ([0-9.]+) to ([0-9.]+)/g);
     if (bodyMatches) {
       return bodyMatches.map(match => {
-        const updateMatch = match.match(/Updates ([^ ]+) from ([0-9.]+) to ([0-9.]+)/);
+        const updateMatch = match.match(/Updates [`']?([^`'\s]+)[`']? from ([0-9.]+) to ([0-9.]+)/);
         if (!updateMatch) return null;
         
         const [, name, fromVersion, toVersion] = updateMatch;

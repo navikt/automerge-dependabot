@@ -286,4 +286,178 @@ describe('run', () => {
     // Restore environment
     process.env = originalEnv;
   });
+  
+  describe('Multi-dependency PR handling', () => {
+    test('should attempt to merge eligible multi-dependency pull requests', async () => {
+      // Setup mock for a multi-dependency PR
+      mockOctokit.rest.pulls.list.mockResolvedValue({
+        data: [
+          { 
+            number: 42, 
+            title: 'Bump multiple dependencies',
+            user: { login: 'dependabot[bot]' },
+            created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
+            head: { sha: 'multi123' },
+            mergeable: true,
+            mergeable_state: 'clean',
+            // Add dependencyInfoList to simulate multi-dependency PR
+            dependencyInfoList: [
+              {
+                name: 'express',
+                fromVersion: '4.17.1',
+                toVersion: '4.17.2',
+                semverChange: 'patch'
+              },
+              {
+                name: 'morgan',
+                fromVersion: '1.10.0',
+                toVersion: '1.10.1',
+                semverChange: 'patch'
+              }
+            ]
+          }
+        ]
+      });
+      
+      await run();
+      
+      expect(mockOctokit.rest.pulls.list).toHaveBeenCalled();
+      expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledWith({
+        owner: 'owner',
+        repo: 'repo',
+        pull_number: 42,
+        merge_method: 'merge'
+      });
+      expect(core.info).toHaveBeenCalledWith(expect.stringContaining('Successfully merged PR #42'));
+    });
+    
+    test('should filter out multi-dependency PRs if any dependency is in ignored dependencies list', async () => {
+      // Setup mock for a multi-dependency PR
+      mockOctokit.rest.pulls.list.mockResolvedValue({
+        data: [
+          { 
+            number: 43, 
+            title: 'Bump multiple dependencies with ignored dependency',
+            user: { login: 'dependabot[bot]' },
+            created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
+            head: { sha: 'multi456' },
+            mergeable: true,
+            mergeable_state: 'clean',
+            dependencyInfoList: [
+              {
+                name: 'express',
+                fromVersion: '4.17.1',
+                toVersion: '4.17.2',
+                semverChange: 'patch'
+              },
+              {
+                name: 'morgan', // This one will be ignored
+                fromVersion: '1.10.0',
+                toVersion: '1.10.1',
+                semverChange: 'patch'
+              }
+            ]
+          }
+        ]
+      });
+      
+      // Override the ignored-dependencies input
+      core.getInput = jest.fn(name => {
+        if (name === 'ignored-dependencies') return 'morgan';
+        return defaultInputs[name] || '';
+      });
+      
+      await run();
+      
+      expect(mockOctokit.rest.pulls.list).toHaveBeenCalled();
+      expect(mockOctokit.rest.pulls.merge).not.toHaveBeenCalled();
+      expect(core.info).toHaveBeenCalledWith(expect.stringContaining('No pull requests passed the filters'));
+    });
+    
+    test('should filter out multi-dependency PRs if any dependency version is in ignored versions list', async () => {
+      // Setup mock for a multi-dependency PR
+      mockOctokit.rest.pulls.list.mockResolvedValue({
+        data: [
+          { 
+            number: 44, 
+            title: 'Bump multiple dependencies with ignored version',
+            user: { login: 'dependabot[bot]' },
+            created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
+            head: { sha: 'multi789' },
+            mergeable: true,
+            mergeable_state: 'clean',
+            dependencyInfoList: [
+              {
+                name: 'express',
+                fromVersion: '4.17.1',
+                toVersion: '4.17.2',
+                semverChange: 'patch'
+              },
+              {
+                name: 'axios',
+                fromVersion: '0.21.0',
+                toVersion: '0.22.0', // This version will be ignored
+                semverChange: 'minor'
+              }
+            ]
+          }
+        ]
+      });
+      
+      // Override the ignored-versions input
+      core.getInput = jest.fn(name => {
+        if (name === 'ignored-versions') return 'axios@0.22.0';
+        return defaultInputs[name] || '';
+      });
+      
+      await run();
+      
+      expect(mockOctokit.rest.pulls.list).toHaveBeenCalled();
+      expect(mockOctokit.rest.pulls.merge).not.toHaveBeenCalled();
+      expect(core.info).toHaveBeenCalledWith(expect.stringContaining('No pull requests passed the filters'));
+    });
+    
+    test('should filter out multi-dependency PRs if any dependency has a semver level not in the filter', async () => {
+      // Setup mock for a multi-dependency PR with mixed semver changes
+      mockOctokit.rest.pulls.list.mockResolvedValue({
+        data: [
+          { 
+            number: 45, 
+            title: 'Bump multiple dependencies with major change',
+            user: { login: 'dependabot[bot]' },
+            created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
+            head: { sha: 'multiABC' },
+            mergeable: true,
+            mergeable_state: 'clean',
+            dependencyInfoList: [
+              {
+                name: 'express',
+                fromVersion: '4.17.1',
+                toVersion: '4.17.2',
+                semverChange: 'patch'
+              },
+              {
+                name: 'react',
+                fromVersion: '17.0.2',
+                toVersion: '18.0.0',
+                semverChange: 'major' // This will be filtered out
+              }
+            ]
+          }
+        ]
+      });
+      
+      // Override the semver-filter input
+      core.getInput = jest.fn(name => {
+        if (name === 'semver-filter') return 'patch,minor';
+        return defaultInputs[name] || '';
+      });
+      
+      await run();
+      
+      expect(mockOctokit.rest.pulls.list).toHaveBeenCalled();
+      expect(mockOctokit.rest.pulls.merge).not.toHaveBeenCalled();
+      expect(core.info).toHaveBeenCalledWith(expect.stringContaining('No pull requests passed the filters'));
+    });
+  });
 });
