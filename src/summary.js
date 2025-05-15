@@ -84,6 +84,29 @@ async function addWorkflowSummary(eligiblePRs, filteredPRs, filters) {
       
       await core.summary.addRaw(noPRsMessage + '\n\n');
       summaryContent += `${noPRsMessage}\n\n`;
+      
+      // Extract early filter reasons from pullRequests module to show why PRs weren't eligible
+      const { getEarlyFilterReasons } = require('./pullRequests');
+      const earlyReasons = getEarlyFilterReasons();
+      
+      if (earlyReasons.size > 0) {
+        const reasonsHeader = 'PR filtering explanation:';
+        await core.summary.addRaw(reasonsHeader + '\n\n');
+        summaryContent += `${reasonsHeader}\n\n`;
+        
+        // Show specific PR filtering details
+        const specificDetails = [];
+        for (const [prNumber, data] of earlyReasons.entries()) {
+          if (data.reasons && data.reasons.length > 0) {
+            specificDetails.push(`- PR #${prNumber}: ${data.reasons.join(', ')}`);
+          }
+        }
+        
+        if (specificDetails.length > 0) {
+          await core.summary.addRaw(specificDetails.join('\n') + '\n\n');
+          summaryContent += `${specificDetails.join('\n')}\n\n`;
+        }
+      }
     } else {
       await core.summary.addRaw(`Found ${eligiblePRs.length} eligible PR(s), ${filteredPRs.length} will be merged.\n\n`);
       summaryContent += `Found ${eligiblePRs.length} eligible PR(s), ${filteredPRs.length} will be merged.\n\n`;

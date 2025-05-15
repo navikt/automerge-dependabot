@@ -270,4 +270,25 @@ describe('Summary Module Tests', () => {
     expect(core.warning).toHaveBeenCalledWith('Failed to add workflow summary: Test error');
     expect(result).toBeNull();
   });
+
+  // Add the test for showing early filter reasons
+  test('should show early filter reasons when no eligible PRs are found', async () => {
+    // Set debug mode to true to get detailed output
+    process.env.GITHUB_STEP_DEBUGGING = 'true';
+    
+    const filters = {
+      ignoredDependencies: [],
+      alwaysAllow: [],
+      ignoredVersions: [],
+      semverFilter: ['patch', 'minor']
+    };
+    
+    const result = await addWorkflowSummary([], [], filters);
+    
+    // Verify that the summary contains early filter reasons
+    const content = getSummaryContent();
+    expect(content).toContain('PR filtering explanation');
+    expect(content).toContain('PR #103');
+    expect(content).toContain('PR #104');
+  });
 });
