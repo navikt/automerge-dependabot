@@ -128,26 +128,6 @@ describe('Summary Module Tests', () => {
     expect(content).toContain('Semver change');
   });
   
-  test('should show early filter reasons when no eligible PRs are found', async () => {
-    // Set debug mode to true to get detailed output
-    process.env.GITHUB_STEP_DEBUGGING = 'true';
-    
-    const filters = {
-      ignoredDependencies: [],
-      alwaysAllow: [],
-      ignoredVersions: [],
-      semverFilter: ['patch', 'minor']
-    };
-    
-    const result = await addWorkflowSummary([], [], filters);
-    
-    // Verify that the summary contains early filter reasons
-    const content = getSummaryContent();
-    expect(content).toContain('Specific PR filtering details');
-    expect(content).toContain('PR #103');
-    expect(content).toContain('PR #104');
-  });
-  
   test('should process PRs with single dependencies', async () => {
     // Test data
     const eligiblePRs = [

@@ -53,7 +53,7 @@ async function addWorkflowSummary(eligiblePRs, filteredPRs, filters) {
     summaryContent += '# Dependabot Automerge Summary\n\n';
     
     // Add filter info
-    await core.summary.addRaw(createSectionTitle('Applied Filters'));
+    await core.summary.addRaw(createSectionTitle('Applied Filters') + '\n\n');
     summaryContent += `${createSectionTitle('Applied Filters')}\n\n`;
     
     const filterTable = [
@@ -63,8 +63,8 @@ async function addWorkflowSummary(eligiblePRs, filteredPRs, filters) {
       `Ignored Versions | ${filters.ignoredVersions.length > 0 ? filters.ignoredVersions.join(', ') : 'None'}`,
       `Semver Filter | ${filters.semverFilter.join(', ')}`
     ].join('\n');
-    
-    await core.summary.addRaw(filterTable);
+
+    await core.summary.addRaw(filterTable + '\n\n');
     summaryContent += `${filterTable}\n\n`;
     
     // Add to summary parts for testing
@@ -76,57 +76,22 @@ async function addWorkflowSummary(eligiblePRs, filteredPRs, filters) {
     };
     
     // Add PR summary
-    await core.summary.addRaw(createSectionTitle('Pull Request Summary'));
+    await core.summary.addRaw(createSectionTitle('Pull Request Summary') + '\n\n');
     summaryContent += `${createSectionTitle('Pull Request Summary')}\n\n`;
     
     if (eligiblePRs.length === 0) {
       const noPRsMessage = 'No eligible PRs found.';
-      const allPRsInfo = 'Reasons PRs may be filtered out:';
       
-      await core.summary.addRaw(noPRsMessage);
-      await core.summary.addRaw('\n' + allPRsInfo);
-      
-      // Extract early filter reasons from pullRequests module
-      const { getEarlyFilterReasons } = require('./pullRequests');
-      const earlyReasons = getEarlyFilterReasons();
-      
-      // Extract debug information from logs
-      const debugInfo = [
-        ...process.env.GITHUB_STEP_DEBUGGING === 'true' || 
-        process.env.RUNNER_DEBUG === 'true' ? 
-        ['- Debug mode is enabled. Check full logs for detailed information.'] : 
-        ['- Debug logging not enabled. Enable it for more detailed information.'],
-        
-        '- Pull requests must be created by Dependabot',
-        `- Pull requests must be at least ${core.getInput('minimum-age-of-pr') || '0'} days old`,
-        '- Pull requests must be in a mergeable state',
-        '- Pull requests must not have failing status checks',
-        '- Pull requests must not have blocking reviews',
-        '- Pull requests must not contain non-Dependabot commits'
-      ];
-      
-      // Add any specific reasons that were captured
-      if (earlyReasons.size > 0) {
-        debugInfo.push('');
-        debugInfo.push('**Specific PR filtering details:**');
-        for (const [prNumber, data] of earlyReasons.entries()) {
-          if (data.reasons && data.reasons.length > 0) {
-            debugInfo.push(`- PR #${prNumber}: ${data.reasons.join(', ')}`);
-          }
-        }
-      }
-      
-      await core.summary.addRaw('\n' + debugInfo.join('\n'));
-      
-      summaryContent += `${noPRsMessage}\n${allPRsInfo}\n${debugInfo.join('\n')}\n\n`;
+      await core.summary.addRaw(noPRsMessage + '\n\n');
+      summaryContent += `${noPRsMessage}\n\n`;
     } else {
-      await core.summary.addRaw(`Found ${eligiblePRs.length} eligible PR(s), ${filteredPRs.length} will be merged.`);
+      await core.summary.addRaw(`Found ${eligiblePRs.length} eligible PR(s), ${filteredPRs.length} will be merged.\n\n`);
       summaryContent += `Found ${eligiblePRs.length} eligible PR(s), ${filteredPRs.length} will be merged.\n\n`;
     }
     
     // Add PR details for filtered PRs
     if (filteredPRs.length > 0) {
-      await core.summary.addRaw(createSectionTitle('PRs to Merge'));
+      await core.summary.addRaw(createSectionTitle('PRs to Merge') + '\n\n');
       summaryContent += `${createSectionTitle('PRs to Merge')}\n\n`;
       
       const prTable = [
@@ -167,14 +132,14 @@ async function addWorkflowSummary(eligiblePRs, filteredPRs, filters) {
         }
       }
       
-      await core.summary.addRaw(prTable.join('\n'));
+      await core.summary.addRaw(prTable.join('\n') + '\n\n');
       summaryContent += `${prTable.join('\n')}\n\n`;
     }
     
     // Add info about PRs that were filtered out
     const filteredOutPRs = eligiblePRs.filter(pr => !filteredPRs.includes(pr));
     if (filteredOutPRs.length > 0) {
-      await core.summary.addRaw(createSectionTitle('PRs Filtered Out'));
+      await core.summary.addRaw(createSectionTitle('PRs Filtered Out') + '\n\n');
       summaryContent += `${createSectionTitle('PRs Filtered Out')}\n\n`;
       
       const filteredOutTable = [
@@ -253,7 +218,7 @@ async function addWorkflowSummary(eligiblePRs, filteredPRs, filters) {
         }
       }
       
-      await core.summary.addRaw(filteredOutTable.join('\n'));
+      await core.summary.addRaw(filteredOutTable.join('\n') + '\n\n');
       summaryContent += `${filteredOutTable.join('\n')}\n\n`;
     }
     
