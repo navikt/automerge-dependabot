@@ -36,6 +36,25 @@ describe('Filters Module', () => {
       expect(shouldAlwaysAllow('axios', [])).toBe(false);
     });
 
+    test('should handle package names with colons', () => {
+      expect(shouldAlwaysAllow('no.nav.appsec:package-a', ['no.nav.appsec:package-a'])).toBe(true);
+      expect(shouldAlwaysAllow('no.nav.appsec:package-b', 
+        ['no.nav.appsec:package-a', 'no.nav.appsec:package-b'])).toBe(true);
+      expect(shouldAlwaysAllow('com.example:other-package', ['no.nav.appsec:package-a'])).toBe(false);
+    });
+
+    test('should match package with colon using name pattern', () => {
+      expect(shouldAlwaysAllow('no.nav.appsec:package-a', ['name:appsec'])).toBe(true);
+      expect(shouldAlwaysAllow('no.nav.appsec:package-a', ['name:package-a'])).toBe(true);
+    });
+
+    test('should match packages based on prefix pattern', () => {
+      expect(shouldAlwaysAllow('no.nav.appsec:contracts', ['no.nav.appsec'])).toBe(true);
+      expect(shouldAlwaysAllow('com.example.core:utils', ['com.example'])).toBe(true);
+      expect(shouldAlwaysAllow('org.apache.maven:core', ['org'])).toBe(true);
+      expect(shouldAlwaysAllow('org.springframework:core', ['org.other'])).toBe(false);
+    });
+
     test('should handle non-semver dependencies with always-allow wildcard', () => {
       const nonSemverPR = {
         number: 105,
@@ -517,6 +536,39 @@ describe('Filters Module', () => {
       expect(result[0].number).toBe(103);
       expect(result.find(pr => pr.number === 101)).toBeUndefined(); // Filtered by ignored dependency 'morgan'
       expect(result.find(pr => pr.number === 102)).toBeUndefined(); // Filtered by ignored version 'redux@4.2.0'
+    });
+
+    test('should pass multi-dependency PR when one dependency matches prefix in always-allow list', () => {
+      const multiPR = {
+        number: 108,
+        title: 'Bump multiple dependencies',
+        user: { login: 'dependabot[bot]' },
+        dependencyInfoList: [
+          {
+            name: 'no.nav.appsec:contracts',
+            fromVersion: '1.0.0',
+            toVersion: '2.0.0',
+            semverChange: 'major' // Would normally be blocked by semver filter
+          },
+          {
+            name: 'other-package',
+            fromVersion: '0.1.0',
+            toVersion: '0.1.1',
+            semverChange: 'patch'
+          }
+        ]
+      };
+
+      const filters = {
+        ignoredDependencies: [],
+        ignoredVersions: [],
+        alwaysAllow: ['no.nav.appsec'],
+        semverFilter: ['patch', 'minor']
+      };
+
+      const result = applyFilters([multiPR], filters);
+      expect(result.length).toBe(1);
+      expect(result[0].number).toBe(108);
     });
   });
 });

@@ -1,6 +1,6 @@
 {
   "name": "automerge-dependabot",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "description": "GitHub Action to automatically merge Dependabot pull requests",
   "main": "dist/index.js",
   "scripts": {

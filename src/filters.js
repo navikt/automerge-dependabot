@@ -15,17 +15,22 @@ function shouldAlwaysAllow(name, alwaysAllowList) {
   
   // Otherwise, check for pattern matches
   return alwaysAllowList.some(pattern => {
-    // If the pattern contains a ':', it's a specific match pattern
-    if (pattern.includes(':')) {
-      const [matchType, matchValue] = pattern.split(':');
-      
-      // Currently supporting only matching by name containing a string
-      if (matchType === 'name' && matchValue && name.includes(matchValue)) {
+    // First check for exact match with the dependency name
+    if (pattern === name) {
+      return true;
+    }
+    
+    // If the pattern starts with 'name:', it's a string matching pattern
+    if (pattern.startsWith('name:')) {
+      const matchValue = pattern.substring(5); // length of 'name:'
+      if (matchValue && name.includes(matchValue)) {
         return true;
       }
-    } else {
-      // Exact match with the dependency name
-      return pattern === name;
+    }
+    
+    // Also allow prefix matches (e.g., "no.nav.appsec" should match "no.nav.appsec:contracts")
+    if (name.startsWith(pattern)) {
+      return true;
     }
     
     return false;
