@@ -1,5 +1,33 @@
 const core = require('@actions/core');
 const timeUtils = require('./timeUtils');
+const semver = require('semver');
+
+/**
+ * Determine semver change level between two versions
+ * 
+ * @param {string} fromVersion - The original version
+ * @param {string} toVersion - The new version
+ * @returns {string} The semver change level ('major', 'minor', 'patch', or 'unknown')
+ */
+function determineSemverChange(fromVersion, toVersion) {
+  let semverChange = 'unknown';
+  
+  // Use semver library to determine the change type
+  const cleanedFromVersion = semver.valid(semver.coerce(fromVersion));
+  const cleanedToVersion = semver.valid(semver.coerce(toVersion));
+  
+  if (cleanedFromVersion && cleanedToVersion) {
+    if (semver.major(cleanedToVersion) > semver.major(cleanedFromVersion)) {
+      semverChange = 'major';
+    } else if (semver.minor(cleanedToVersion) > semver.minor(cleanedFromVersion)) {
+      semverChange = 'minor';
+    } else if (semver.patch(cleanedToVersion) > semver.patch(cleanedFromVersion)) {
+      semverChange = 'patch';
+    }
+  }
+  
+  return semverChange;
+}
 
 /**
  * Find pull requests that are eligible for auto-merging
@@ -158,21 +186,7 @@ function extractDependencyInfo(title) {
   const [, name, fromVersion, toVersion] = match;
   
   // Determine semver change level
-  let semverChange = 'unknown';
-  
-  // Common version formats
-  const fromParts = fromVersion.split('.').map(p => parseInt(p, 10));
-  const toParts = toVersion.split('.').map(p => parseInt(p, 10));
-  
-  if (fromParts.length >= 3 && toParts.length >= 3) {
-    if (toParts[0] > fromParts[0]) {
-      semverChange = 'major';
-    } else if (toParts[1] > fromParts[1]) {
-      semverChange = 'minor';
-    } else if (toParts[2] > fromParts[2]) {
-      semverChange = 'patch';
-    }
-  }
+  const semverChange = determineSemverChange(fromVersion, toVersion);
   
   return {
     name,
@@ -207,21 +221,8 @@ function extractMultipleDependencyInfo(title, body) {
         
         const [, name, fromVersion, toVersion] = updateMatch;
         // Determine semver change level
-        let semverChange = 'unknown';
+        const semverChange = determineSemverChange(fromVersion, toVersion);
         
-        // Common version formats
-        const fromParts = fromVersion.split('.').map(p => parseInt(p, 10));
-        const toParts = toVersion.split('.').map(p => parseInt(p, 10));
-        
-        if (fromParts.length >= 3 && toParts.length >= 3) {
-          if (toParts[0] > fromParts[0]) {
-            semverChange = 'major';
-          } else if (toParts[1] > fromParts[1]) {
-            semverChange = 'minor';
-          } else if (toParts[2] > fromParts[2]) {
-            semverChange = 'patch';
-          }
-        }
         return {
           name,
           fromVersion,
@@ -257,26 +258,12 @@ function extractMultipleDependencyInfo(title, body) {
       // Clean up package name (remove markdown links if present)
       packageName = packageName.replace(/\[([^\]]+)\]\([^)]+\)/, '$1').trim();
       
-      // Determine semver change level
-      let semverChange = 'unknown';
-      
       // Clean up versions (remove backticks if present)
       fromVersion = fromVersion.trim().replace(/`/g, '');
       toVersion = toVersion.trim().replace(/`/g, '');
       
-      // Common version formats
-      const fromParts = fromVersion.split('.').map(p => parseInt(p, 10));
-      const toParts = toVersion.split('.').map(p => parseInt(p, 10));
-      
-      if (fromParts.length >= 3 && toParts.length >= 3) {
-        if (toParts[0] > fromParts[0]) {
-          semverChange = 'major';
-        } else if (toParts[1] > fromParts[1]) {
-          semverChange = 'minor';
-        } else if (toParts[2] > fromParts[2]) {
-          semverChange = 'patch';
-        }
-      }
+      // Determine semver change level
+      const semverChange = determineSemverChange(fromVersion, toVersion);
       
       dependencies.push({
         name: packageName,
@@ -295,5 +282,6 @@ function extractMultipleDependencyInfo(title, body) {
 module.exports = {
   findMergeablePRs,
   extractDependencyInfo,
-  extractMultipleDependencyInfo
+  extractMultipleDependencyInfo,
+  determineSemverChange
 };

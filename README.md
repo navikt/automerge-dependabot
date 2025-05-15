@@ -10,6 +10,7 @@ This action automatically merges pull requests created by Dependabot with a set 
 - Filters for ignoring specific dependencies
 - Filters for ignoring specific versions of dependencies
 - Filter based on semantic versioning levels (major, minor, patch)
+- Robust version comparison using the official semver npm package
 
 ## Inputs
 
@@ -126,6 +127,19 @@ jobs:
    - Ignored versions
    - Semantic versioning filters
 6. Eligible pull requests are automatically merged using the specified merge method
+
+## Semantic Version Handling
+
+This action uses the official [semver npm package](https://github.com/npm/node-semver) to accurately determine the type of dependency update:
+
+- **Major**: Breaking changes (e.g., from 1.0.0 to 2.0.0)
+- **Minor**: New features, non-breaking (e.g., from 1.0.0 to 1.1.0)
+- **Patch**: Bug fixes and patches (e.g., from 1.0.0 to 1.0.1)
+
+The action can handle complex version strings including:
+- Pre-release versions (e.g., 1.0.0-beta.1)
+- Build metadata (e.g., 1.0.0+20200101)
+- Other non-standard version formats
 
 ## License
 
