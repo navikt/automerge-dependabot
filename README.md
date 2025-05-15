@@ -1,4 +1,7 @@
 # Automerge Dependabot Github Action
+[![Lint & Test](https://github.com/navikt/automerge-dependabot/actions/workflows/tests.yml/badge.svg)](https://github.com/navikt/automerge-dependabot/actions/workflows/tests.yml)
+[![Dependabot Updates](https://github.com/navikt/automerge-dependabot/actions/workflows/dependabot/dependabot-updates/badge.svg)](https://github.com/navikt/automerge-dependabot/actions/workflows/dependabot/dependabot-updates)
+[![CodeQL](https://github.com/navikt/automerge-dependabot/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/navikt/automerge-dependabot/actions/workflows/github-code-scanning/codeql)
 
 This action automatically merges pull requests created by Dependabot with a set of configurable rules.
 
