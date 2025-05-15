@@ -3,6 +3,7 @@ const github = require('@actions/github');
 const { findMergeablePRs } = require('./pullRequests');
 const { shouldRunAtCurrentTime } = require('./timeUtils');
 const { applyFilters } = require('./filters');
+const { addWorkflowSummary } = require('./summary');
 
 async function run() {
   try {
@@ -56,15 +57,20 @@ async function run() {
     }
     
     // Apply filters and merge eligible PRs
+    const filterOptions = {
+      ignoredDependencies: ignoredDependencies ? ignoredDependencies.split(',').map(d => d.trim()) : [],
+      alwaysAllow: alwaysAllow ? alwaysAllow.split(',').map(d => d.trim()) : [],
+      ignoredVersions: ignoredVersions ? ignoredVersions.split(',').map(v => v.trim()) : [],
+      semverFilter: semverFilter ? semverFilter.split(',').map(s => s.trim()) : ['patch', 'minor']
+    };
+    
     const filteredPRs = applyFilters(
       pullRequests, 
-      {
-        ignoredDependencies: ignoredDependencies ? ignoredDependencies.split(',').map(d => d.trim()) : [],
-        alwaysAllow: alwaysAllow ? alwaysAllow.split(',').map(d => d.trim()) : [],
-        ignoredVersions: ignoredVersions ? ignoredVersions.split(',').map(v => v.trim()) : [],
-        semverFilter: semverFilter ? semverFilter.split(',').map(s => s.trim()) : ['patch', 'minor']
-      }
+      filterOptions
     );
+    
+    // Add information to GitHub workflow summary
+    await addWorkflowSummary(pullRequests, filteredPRs, filterOptions);
     
     if (filteredPRs.length === 0) {
       core.info('No pull requests passed the filters for automerging.');

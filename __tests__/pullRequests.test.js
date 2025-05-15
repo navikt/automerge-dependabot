@@ -1,4 +1,4 @@
-const { findMergeablePRs, extractDependencyInfo, extractMultipleDependencyInfo } = require('../src/pullRequests');
+const { findMergeablePRs, extractMultipleDependencyInfo } = require('../src/pullRequests');
 const core = require('@actions/core');
 
 // Mock dependencies

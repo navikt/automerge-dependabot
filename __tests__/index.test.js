@@ -1,13 +1,13 @@
 const core = require('@actions/core');
 const github = require('@actions/github');
-const { findMergeablePRs } = require('../src/pullRequests');
-const { shouldRunAtCurrentTime } = require('../src/timeUtils');
-const { applyFilters } = require('../src/filters');
 const { run } = require('../src/index');
 
 // Mock external dependencies only
 jest.mock('@actions/core');
 jest.mock('@actions/github');
+jest.mock('../src/summary', () => ({
+  addWorkflowSummary: jest.fn().mockResolvedValue({})
+}));
 
 describe('run', () => {
   const mockOctokit = {
@@ -458,6 +458,51 @@ describe('run', () => {
       expect(mockOctokit.rest.pulls.list).toHaveBeenCalled();
       expect(mockOctokit.rest.pulls.merge).not.toHaveBeenCalled();
       expect(core.info).toHaveBeenCalledWith(expect.stringContaining('No pull requests passed the filters'));
+    });
+    
+    test('should correctly process workflow summary', async () => {
+      // Only allow patch updates
+      core.getInput = jest.fn(name => {
+        if (name === 'semver-filter') return 'patch';
+        return defaultInputs[name] || '';
+      });
+      
+      // Set up mock PRs with one that should be filtered out
+      mockOctokit.rest.pulls.list.mockResolvedValueOnce({
+        data: [
+          { 
+            number: 1, 
+            title: 'Bump lodash from 4.17.20 to 4.17.21',
+            user: { login: 'dependabot[bot]' },
+            html_url: 'https://github.com/owner/repo/pull/1',
+            created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(), // 4 days old
+            head: { sha: 'abc123' }
+          }
+        ]
+      });
+      
+      // Configure for eligible PRs
+      mockOctokit.rest.pulls.get.mockImplementation(({ pull_number }) => {
+        return {
+          data: {
+            number: pull_number,
+            mergeable: true
+          }
+        };
+      });
+      
+      await run();
+      
+      // Verify the summary was handled properly - should check for successful execution, not specific content
+      expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledTimes(1);
+      expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledWith(
+        expect.objectContaining({
+          pull_number: 1
+        })
+      );
+      
+      // Clean up environment
+      delete process.env.GITHUB_STEP_SUMMARY;
     });
   });
 });

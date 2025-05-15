@@ -1,7 +1,7 @@
 name: Automerge Dependabot Pull Requests
-description: Automatically merge pull requests created by Dependabot with configurable rules
+description: Automatically merge pull requests created by Dependabot with configurable rules and workflow summary
 author: navikt
-version: 0.0.1
+version: 1.0.0
 
 branding:
   icon: git-merge

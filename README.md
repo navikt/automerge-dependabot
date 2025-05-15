@@ -14,6 +14,7 @@ This action automatically merges pull requests created by Dependabot with a set 
 - Filters for ignoring specific versions of dependencies
 - Filter based on semantic versioning levels (major, minor, patch)
 - Robust version comparison using the official semver npm package
+- Detailed workflow summary with dependency decisions and PR status
 
 ## Inputs
 
@@ -144,7 +145,20 @@ jobs:
    - Ignored dependencies
    - Ignored versions
    - Semantic versioning filters
-6. Eligible pull requests are automatically merged using the specified merge method
+6. Creates a detailed workflow summary showing which PRs will be merged and which were filtered out
+7. Eligible pull requests are automatically merged using the specified merge method
+
+## Workflow Summary
+
+The action generates a detailed workflow summary that includes:
+
+- Applied filter settings
+- Summary of eligible PRs found and how many will be merged
+- Detailed tables showing:
+  - PRs that will be merged, with dependency information and change level
+  - PRs that were filtered out, with reasons why they didn't pass the filters
+
+This helps maintain transparency and makes it easy to audit which dependencies are being automatically updated and why certain PRs might not be merged.
 
 ## Handling Non-Semver Dependencies
 

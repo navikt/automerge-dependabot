@@ -1,4 +1,21 @@
 version: 2
+registries:
+  mvn:
+    type: maven-repository
+    url: https://maven.pkg.github.com/navikt
+    username: x-access-token
+    password: ${{secrets.READER_TOKEN}}
+updates:
+  - package-ecosystem: maven
+    directory: "/"
+    schedule:
+      interval: daily
+    registries:
+      - mvn
+    groups:
+      maven:
+        patterns:
+          - "*"
 updates:
   - package-ecosystem: "npm"
     directory: "/"
