@@ -1,4 +1,4 @@
-const { extractDependencyInfo } = require('../src/pullRequests');
+const { extractDependencyInfo, determineSemverChange } = require('../src/pullRequests');
 
 describe('Semver Handling', () => {
   test('should handle simple version formats correctly', () => {
@@ -49,5 +49,14 @@ describe('Semver Handling', () => {
     expect(result.fromVersion).toBe('unknown');
     expect(result.toVersion).toBe('latest');
     expect(result.semverChange).toBe('unknown');
+  });
+
+  test('should recognize commit hashes as unknown semver changes', () => {
+    // Test with short commit hash
+    expect(determineSemverChange('abc1234', 'def5678')).toBe('unknown');
+    
+    // Test with full commit hash
+    expect(determineSemverChange('abc1234def5678abc1234def5678abc1234', 
+                                'def5678abc1234def5678abc1234def5678')).toBe('unknown');
   });
 });

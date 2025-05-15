@@ -10,20 +10,41 @@ const semver = require('semver');
  * @returns {string} The semver change level ('major', 'minor', 'patch', or 'unknown')
  */
 function determineSemverChange(fromVersion, toVersion) {
+  // Initialize with unknown
   let semverChange = 'unknown';
   
-  // Use semver library to determine the change type
-  const cleanedFromVersion = semver.valid(semver.coerce(fromVersion));
-  const cleanedToVersion = semver.valid(semver.coerce(toVersion));
+  // If either version is not a string or is empty, return unknown
+  if (!fromVersion || !toVersion || typeof fromVersion !== 'string' || typeof toVersion !== 'string') {
+    return semverChange;
+  }
   
-  if (cleanedFromVersion && cleanedToVersion) {
-    if (semver.major(cleanedToVersion) > semver.major(cleanedFromVersion)) {
-      semverChange = 'major';
-    } else if (semver.minor(cleanedToVersion) > semver.minor(cleanedFromVersion)) {
-      semverChange = 'minor';
-    } else if (semver.patch(cleanedToVersion) > semver.patch(cleanedFromVersion)) {
-      semverChange = 'patch';
+  // Handle common non-semver patterns explicitly
+  // Check for commit hashes (Git SHA-like strings)
+  const isFromHash = /^[a-f0-9]{7,40}$/i.test(fromVersion);
+  const isToHash = /^[a-f0-9]{7,40}$/i.test(toVersion);
+  if (isFromHash && isToHash) {
+    return semverChange;
+  }
+  
+  // Try to use semver library to determine the change type
+  try {
+    // Use semver.coerce to handle non-standard version formats
+    const cleanedFromVersion = semver.valid(semver.coerce(fromVersion));
+    const cleanedToVersion = semver.valid(semver.coerce(toVersion));
+    
+    if (cleanedFromVersion && cleanedToVersion) {
+      if (semver.major(cleanedToVersion) > semver.major(cleanedFromVersion)) {
+        semverChange = 'major';
+      } else if (semver.minor(cleanedToVersion) > semver.minor(cleanedFromVersion)) {
+        semverChange = 'minor';
+      } else if (semver.patch(cleanedToVersion) > semver.patch(cleanedFromVersion)) {
+        semverChange = 'patch';
+      }
+      // If versions are equal after coercion, keep as 'unknown'
     }
+  } catch (error) {
+    // If semver parsing fails, keep as 'unknown'
+    core.debug(`Failed to determine semver change: ${error.message}`);
   }
   
   return semverChange;

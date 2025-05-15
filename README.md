@@ -37,8 +37,20 @@ Formats supported:
 
 ### `ignored-dependencies`
 
-Comma-separated list of dependencies to ignore (will not be automerged).
-Example: `lodash,express,react`
+Comma-separated list of dependencies to ignore (will not be automerged). Example: `lodash,react,express`.
+
+### `always-allow`
+
+Comma-separated list of patterns to always allow regardless of semver changes. This is especially useful for dependencies that don't follow semantic versioning.
+
+- Use `*` to always allow any dependency with non-semver versioning
+- Use `name:string` to match dependencies containing a specific string. For example, `name:eslint` would match `eslint`, `eslint-plugin-react`, etc.
+- Use specific package names to always allow specific packages
+
+Examples:
+- `*` - Always allow all non-semver dependencies
+- `name:aws` - Allow all dependencies with "aws" in the name
+- `lodash,express` - Always allow these specific packages
 
 ### `ignored-versions`
 
@@ -106,6 +118,7 @@ jobs:
           blackout-periods: 'Sat,Sun,Dec 24-Jan 5,9:00-10:00'
           ignored-dependencies: 'react,react-dom,webpack'
           ignored-versions: 'eslint@8.0.0,lodash@*'
+          always-allow: 'name:aws,github-action-*'
           semver-filter: 'patch'
           merge-method: 'squash'
 ```
@@ -127,6 +140,71 @@ jobs:
    - Ignored versions
    - Semantic versioning filters
 6. Eligible pull requests are automatically merged using the specified merge method
+
+## Handling Non-Semver Dependencies
+
+Some dependencies don't follow standard semantic versioning, using commit hashes, dates, or custom versioning schemes. The action provides several ways to handle these:
+
+1. **Include 'unknown' in semver-filter**: Add `unknown` to your `semver-filter` to allow all dependencies that cannot be parsed as semantic versions.
+
+   ```yaml
+   with:
+     semver-filter: 'patch,minor,unknown'
+   ```
+
+2. **Use the always-allow option**: Specify patterns to bypass semver checking completely.
+
+   ```yaml
+   with:
+     always-allow: '*'  # Allow all non-semver dependencies
+   ```
+
+   Or target specific dependencies:
+
+   ```yaml
+   with:
+     always-allow: 'name:aws,my-custom-package'  # Allow AWS-related packages and a specific one
+   ```
+
+When using multiple dependency PRs (where Dependabot updates several packages at once), the rules apply to each dependency individually. If any dependency doesn't meet your criteria, the entire PR will be skipped.
+
+## Non-semver Decision Flow
+
+When a Dependabot PR is detected, the version changes are processed using this decision flow:
+
+```
+                       ┌─────────────────────┐
+                       │    Dependabot PR    │
+                       └──────────┬──────────┘
+                                  │
+                       ┌──────────▼──────────┐
+         ┌── No ───────┤ In ignored-packages?│
+         │             └──────────┬──────────┘
+         │                        │ No
+┌────────▼────────┐    ┌──────────▼──────────┐
+│  Skip Package   │    │In ignored-versions? │─── Yes ──┐
+└─────────────────┘    └──────────┬──────────┘          │
+         ▲                        │ No                  │
+         │             ┌──────────▼──────────┐          │
+         └── Yes ──────┤ In always-allow?    │          │
+                       └──────────┬──────────┘          │
+                                  │ No                  │
+                       ┌──────────▼──────────┐          │
+                       │  Determine semver   │          │
+                       │    change level     │          │
+                       └──────────┬──────────┘          │
+                                  │                     │
+                       ┌──────────▼──────────┐          │
+                       │    Level in the     │          │
+                       │   semver-filter?    │─── No ───┘
+                       └──────────┬──────────┘
+                                  │ Yes
+                       ┌──────────▼──────────┐
+                       │   Merge Package     │
+                       └─────────────────────┘
+```
+
+This diagram shows how the action determines whether to merge a Dependabot PR based on the package name, version, and semver change level.
 
 ## Semantic Version Handling
 

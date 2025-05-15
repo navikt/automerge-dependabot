@@ -22,11 +22,14 @@ inputs:
   ignored-dependencies:
     description: Comma-separated list of dependencies to ignore (will not be automerged)
     required: false
+  always-allow:
+    description: Comma-separated list of patterns to always allow. Use * to always allow all non-semver dependencies, or specify patterns like 'name:string' to match dependencies containing a specific string
+    required: false
   ignored-versions:
     description: Comma-separated list of specific versions to ignore (format package@version, e.g., "lodash@4.17.21,axios@0.21.1")
     required: false
   semver-filter:
-    description: Filter based on semver level changes (comma-separated list of major, minor, patch)
+    description: Filter based on semver level changes (comma-separated list of major, minor, patch, unknown)
     required: false
     default: 'patch,minor'
   merge-method:

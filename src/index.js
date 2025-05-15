@@ -27,6 +27,7 @@ async function run() {
     const minimumAgeInDays = parseInt(core.getInput('minimum-age-of-pr'), 10);
     const blackoutPeriods = core.getInput('blackout-periods');
     const ignoredDependencies = core.getInput('ignored-dependencies');
+    const alwaysAllow = core.getInput('always-allow');
     const ignoredVersions = core.getInput('ignored-versions');
     const semverFilter = core.getInput('semver-filter');
     const mergeMethod = core.getInput('merge-method');
@@ -59,6 +60,7 @@ async function run() {
       pullRequests, 
       {
         ignoredDependencies: ignoredDependencies ? ignoredDependencies.split(',').map(d => d.trim()) : [],
+        alwaysAllow: alwaysAllow ? alwaysAllow.split(',').map(d => d.trim()) : [],
         ignoredVersions: ignoredVersions ? ignoredVersions.split(',').map(v => v.trim()) : [],
         semverFilter: semverFilter ? semverFilter.split(',').map(s => s.trim()) : ['patch', 'minor']
       }
