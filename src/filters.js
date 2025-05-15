@@ -1,6 +1,52 @@
 const core = require('@actions/core');
 
 /**
+ * Store the filtering reasons for a PR
+ * Key: PR number
+ * Value: Object with reason details
+ */
+const filteringReasons = new Map();
+
+/**
+ * Record a filtering reason for a PR
+ * 
+ * @param {number} prNumber - The pull request number
+ * @param {string} reason - The reason for filtering
+ */
+function recordFilterReason(prNumber, reason) {
+  if (!filteringReasons.has(prNumber)) {
+    filteringReasons.set(prNumber, { reasons: [] });
+  }
+  filteringReasons.get(prNumber).reasons.push(reason);
+}
+
+/**
+ * Reset all stored filtering reasons
+ */
+function resetFilterReasons() {
+  filteringReasons.clear();
+}
+
+/**
+ * Get filtering reasons for a PR
+ * 
+ * @param {number} prNumber - The pull request number
+ * @returns {Object|null} The filtering reasons for the PR or null if not found
+ */
+function getFilterReasons(prNumber) {
+  return filteringReasons.has(prNumber) ? filteringReasons.get(prNumber) : null;
+}
+
+/**
+ * Get all filtering reasons
+ * 
+ * @returns {Map} Map of PR numbers to filtering reasons
+ */
+function getAllFilterReasons() {
+  return filteringReasons;
+}
+
+/**
  * Check if a dependency should always be allowed based on the alwaysAllow list
  * 
  * @param {string} name - The dependency name
@@ -47,6 +93,9 @@ function shouldAlwaysAllow(name, alwaysAllowList) {
 function applyFilters(pullRequests, filters) {
   const { ignoredDependencies, alwaysAllow = [], ignoredVersions, semverFilter } = filters;
   
+  // Reset filtering reasons for a new run
+  resetFilterReasons();
+  
   core.info(`Applying filters: ${
     [
       ignoredDependencies.length > 0 ? `Ignored dependencies: ${ignoredDependencies.join(', ')}` : null,
@@ -59,7 +108,9 @@ function applyFilters(pullRequests, filters) {
   return pullRequests.filter(pr => {
     // Security check: Ensure PR is created by Dependabot
     if (!pr.user || pr.user.login !== 'dependabot[bot]') {
-      core.debug(`PR #${pr.number}: Skipping - Not created by Dependabot (creator: ${pr.user?.login || 'unknown'})`);
+      const reason = `Not created by Dependabot (creator: ${pr.user?.login || 'unknown'})`;
+      recordFilterReason(pr.number, reason);
+      core.debug(`PR #${pr.number}: Skipping - ${reason}`);
       return false;
     }
     
@@ -71,13 +122,17 @@ function applyFilters(pullRequests, filters) {
         
         // Skip the entire PR if any dependency info is incomplete
         if (!name || !toVersion || !semverChange) {
-          core.debug(`PR #${pr.number}: Skipping - Dependency missing info in multiple dependency PR`);
+          const reason = 'Dependency missing info in multiple dependency PR';
+          recordFilterReason(pr.number, reason);
+          core.debug(`PR #${pr.number}: Skipping - ${reason}`);
           return false;
         }
         
         // Skip the entire PR if any dependency is in the ignored list
         if (ignoredDependencies.some(dep => dep === name)) {
-          core.debug(`PR #${pr.number}: Skipping - Dependency "${name}" is in ignored list`);
+          const reason = `Dependency "${name}" is in ignored list`;
+          recordFilterReason(pr.number, reason);
+          core.debug(`PR #${pr.number}: Skipping - ${reason}`);
           return false;
         }
         
@@ -88,7 +143,9 @@ function applyFilters(pullRequests, filters) {
         });
         
         if (versionMatches) {
-          core.debug(`PR #${pr.number}: Skipping - Version "${name}@${toVersion}" is in ignored list`);
+          const reason = `Version "${name}@${toVersion}" is in ignored list`;
+          recordFilterReason(pr.number, reason);
+          core.debug(`PR #${pr.number}: Skipping - ${reason}`);
           return false;
         }
         
@@ -100,7 +157,9 @@ function applyFilters(pullRequests, filters) {
         
         // Skip the entire PR if any semver change level is not allowed
         if (!semverFilter.includes(semverChange)) {
-          core.debug(`PR #${pr.number}: Skipping - Semver change "${semverChange}" for "${name}" is not in allowed list: ${semverFilter.join(', ')}`);
+          const reason = `Semver change "${semverChange}" for "${name}" is not in allowed list: ${semverFilter.join(', ')}`;
+          recordFilterReason(pr.number, reason);
+          core.debug(`PR #${pr.number}: Skipping - ${reason}`);
           return false;
         }
       }
@@ -114,7 +173,9 @@ function applyFilters(pullRequests, filters) {
       
       // Skip if dependencyInfo is undefined
       if (!dependencyInfo) {
-        core.debug(`PR #${pr.number}: Skipping - No dependency info available`);
+        const reason = 'No dependency info available';
+        recordFilterReason(pr.number, reason);
+        core.debug(`PR #${pr.number}: Skipping - ${reason}`);
         return false;
       }
       
@@ -122,13 +183,17 @@ function applyFilters(pullRequests, filters) {
       
       // Skip if no dependency info could be extracted
       if (!name || !toVersion || !semverChange) {
-        core.debug(`PR #${pr.number}: Skipping - Could not extract dependency info from title "${pr.title}"`);
+        const reason = `Could not extract dependency info from title "${pr.title}"`;
+        recordFilterReason(pr.number, reason);
+        core.debug(`PR #${pr.number}: Skipping - ${reason}`);
         return false;
       }
       
       // Check if dependency is in ignored list
       if (ignoredDependencies.some(dep => dep === name)) {
-        core.debug(`PR #${pr.number}: Skipping - Dependency "${name}" is in ignored list`);
+        const reason = `Dependency "${name}" is in ignored list`;
+        recordFilterReason(pr.number, reason);
+        core.debug(`PR #${pr.number}: Skipping - ${reason}`);
         return false;
       }
       
@@ -139,7 +204,9 @@ function applyFilters(pullRequests, filters) {
       });
       
       if (versionMatches) {
-        core.debug(`PR #${pr.number}: Skipping - Version "${name}@${toVersion}" is in ignored list`);
+        const reason = `Version "${name}@${toVersion}" is in ignored list`;
+        recordFilterReason(pr.number, reason);
+        core.debug(`PR #${pr.number}: Skipping - ${reason}`);
         return false;
       }
       
@@ -151,7 +218,9 @@ function applyFilters(pullRequests, filters) {
       
       // Check semver change level
       if (!semverFilter.includes(semverChange)) {
-        core.debug(`PR #${pr.number}: Skipping - Semver change "${semverChange}" is not in allowed list: ${semverFilter.join(', ')}`);
+        const reason = `Semver change "${semverChange}" is not in allowed list: ${semverFilter.join(', ')}`;
+        recordFilterReason(pr.number, reason);
+        core.debug(`PR #${pr.number}: Skipping - ${reason}`);
         return false;
       }
       
@@ -163,5 +232,9 @@ function applyFilters(pullRequests, filters) {
 
 module.exports = {
   applyFilters,
-  shouldAlwaysAllow
+  shouldAlwaysAllow,
+  getFilterReasons,
+  getAllFilterReasons,
+  resetFilterReasons,
+  recordFilterReason
 };

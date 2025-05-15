@@ -1,6 +1,29 @@
 const core = require('@actions/core');
 const { addWorkflowSummary, getSummaryContent } = require('../src/summary');
 
+// Mock filters.js
+jest.mock('../src/filters', () => ({
+  getFilterReasons: jest.fn().mockImplementation((prNumber) => {
+    if (prNumber === 102) {
+      return {
+        reasons: ['Semver change "major" is not in allowed list: patch, minor']
+      };
+    }
+    return null;
+  }),
+  resetFilterReasons: jest.fn()
+}));
+
+// Mock pullRequests.js
+jest.mock('../src/pullRequests', () => ({
+  getEarlyFilterReasons: jest.fn().mockImplementation(() => {
+    const reasons = new Map();
+    reasons.set(103, { reasons: ['Too recent (created 1 day ago, needs to be at least 2 days old)'] });
+    reasons.set(104, { reasons: ['Not in mergeable state'] });
+    return reasons;
+  })
+}));
+
 // Test the summary module
 describe('Summary Module Tests', () => {
   // Store original environment
@@ -56,6 +79,73 @@ describe('Summary Module Tests', () => {
     
     // Verify that info was logged
     expect(core.info).toHaveBeenCalledWith(expect.stringContaining('Added workflow summary'));
+  });
+  
+  test('should show specific filter reasons for filtered out PRs', async () => {
+    // Test data
+    const eligiblePRs = [
+      {
+        number: 101,
+        html_url: 'https://github.com/owner/repo/pull/101',
+        title: 'Bump lodash from 4.17.20 to 4.17.21',
+        dependencyInfo: {
+          name: 'lodash',
+          fromVersion: '4.17.20',
+          toVersion: '4.17.21',
+          semverChange: 'patch'
+        }
+      },
+      {
+        number: 102,
+        html_url: 'https://github.com/owner/repo/pull/102',
+        title: 'Bump axios from 0.21.0 to 1.0.0',
+        dependencyInfo: {
+          name: 'axios',
+          fromVersion: '0.21.0',
+          toVersion: '1.0.0',
+          semverChange: 'major'
+        }
+      }
+    ];
+    
+    const filteredPRs = [eligiblePRs[0]]; // Only first PR will be merged (patch update)
+    
+    const filters = {
+      ignoredDependencies: [],
+      alwaysAllow: [],
+      ignoredVersions: [],
+      semverFilter: ['patch', 'minor'] // Major updates are filtered out
+    };
+    
+    const result = await addWorkflowSummary(eligiblePRs, filteredPRs, filters);
+    
+    // Verify the filter reasons are used
+    expect(result.prsFilteredOut.length).toBe(1);
+    expect(result.prsFilteredOut[0].reason).toContain('Semver change');
+    
+    // Check the summary content
+    const content = getSummaryContent();
+    expect(content).toContain('Semver change');
+  });
+  
+  test('should show early filter reasons when no eligible PRs are found', async () => {
+    // Set debug mode to true to get detailed output
+    process.env.GITHUB_STEP_DEBUGGING = 'true';
+    
+    const filters = {
+      ignoredDependencies: [],
+      alwaysAllow: [],
+      ignoredVersions: [],
+      semverFilter: ['patch', 'minor']
+    };
+    
+    const result = await addWorkflowSummary([], [], filters);
+    
+    // Verify that the summary contains early filter reasons
+    const content = getSummaryContent();
+    expect(content).toContain('Specific PR filtering details');
+    expect(content).toContain('PR #103');
+    expect(content).toContain('PR #104');
   });
   
   test('should process PRs with single dependencies', async () => {

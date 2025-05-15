@@ -54,7 +54,7 @@ async function addWorkflowSummary(eligiblePRs, filteredPRs, filters) {
     
     // Add filter info
     await core.summary.addRaw(createSectionTitle('Applied Filters'));
-    summaryContent += `${createSectionTitle('Applied Filters')}\n`;
+    summaryContent += `${createSectionTitle('Applied Filters')}\n\n`;
     
     const filterTable = [
       createTableHeader(['Filter Type', 'Value']),
@@ -77,21 +77,48 @@ async function addWorkflowSummary(eligiblePRs, filteredPRs, filters) {
     
     // Add PR summary
     await core.summary.addRaw(createSectionTitle('Pull Request Summary'));
-    summaryContent += `${createSectionTitle('Pull Request Summary')}\n`;
+    summaryContent += `${createSectionTitle('Pull Request Summary')}\n\n`;
     
     if (eligiblePRs.length === 0) {
-      const noPRsMessage = 'No eligible PRs found. This could be due to:';
-      const reasons = [
-        '- No open Dependabot PRs',
-        '- PRs are too recent (less than the minimum age requirement)',
-        '- PRs have failing status checks',
-        '- PRs have merge conflicts'
-      ];
+      const noPRsMessage = 'No eligible PRs found.';
+      const allPRsInfo = 'Reasons PRs may be filtered out:';
       
       await core.summary.addRaw(noPRsMessage);
-      await core.summary.addRaw(reasons.join('\n'));
+      await core.summary.addRaw('\n' + allPRsInfo);
       
-      summaryContent += `${noPRsMessage}\n${reasons.join('\n')}\n\n`;
+      // Extract early filter reasons from pullRequests module
+      const { getEarlyFilterReasons } = require('./pullRequests');
+      const earlyReasons = getEarlyFilterReasons();
+      
+      // Extract debug information from logs
+      const debugInfo = [
+        ...process.env.GITHUB_STEP_DEBUGGING === 'true' || 
+        process.env.RUNNER_DEBUG === 'true' ? 
+        ['- Debug mode is enabled. Check full logs for detailed information.'] : 
+        ['- Debug logging not enabled. Enable it for more detailed information.'],
+        
+        '- Pull requests must be created by Dependabot',
+        `- Pull requests must be at least ${core.getInput('minimum-age-of-pr') || '0'} days old`,
+        '- Pull requests must be in a mergeable state',
+        '- Pull requests must not have failing status checks',
+        '- Pull requests must not have blocking reviews',
+        '- Pull requests must not contain non-Dependabot commits'
+      ];
+      
+      // Add any specific reasons that were captured
+      if (earlyReasons.size > 0) {
+        debugInfo.push('');
+        debugInfo.push('**Specific PR filtering details:**');
+        for (const [prNumber, data] of earlyReasons.entries()) {
+          if (data.reasons && data.reasons.length > 0) {
+            debugInfo.push(`- PR #${prNumber}: ${data.reasons.join(', ')}`);
+          }
+        }
+      }
+      
+      await core.summary.addRaw('\n' + debugInfo.join('\n'));
+      
+      summaryContent += `${noPRsMessage}\n${allPRsInfo}\n${debugInfo.join('\n')}\n\n`;
     } else {
       await core.summary.addRaw(`Found ${eligiblePRs.length} eligible PR(s), ${filteredPRs.length} will be merged.`);
       summaryContent += `Found ${eligiblePRs.length} eligible PR(s), ${filteredPRs.length} will be merged.\n\n`;
@@ -100,7 +127,7 @@ async function addWorkflowSummary(eligiblePRs, filteredPRs, filters) {
     // Add PR details for filtered PRs
     if (filteredPRs.length > 0) {
       await core.summary.addRaw(createSectionTitle('PRs to Merge'));
-      summaryContent += `${createSectionTitle('PRs to Merge')}\n`;
+      summaryContent += `${createSectionTitle('PRs to Merge')}\n\n`;
       
       const prTable = [
         createTableHeader(['PR', 'Dependency', 'From → To', 'Change Level', 'Status'])
@@ -148,25 +175,34 @@ async function addWorkflowSummary(eligiblePRs, filteredPRs, filters) {
     const filteredOutPRs = eligiblePRs.filter(pr => !filteredPRs.includes(pr));
     if (filteredOutPRs.length > 0) {
       await core.summary.addRaw(createSectionTitle('PRs Filtered Out'));
-      summaryContent += `${createSectionTitle('PRs Filtered Out')}\n`;
+      summaryContent += `${createSectionTitle('PRs Filtered Out')}\n\n`;
       
       const filteredOutTable = [
         createTableHeader(['PR', 'Dependency', 'From → To', 'Change Level', 'Reason'])
       ];
       
       for (const pr of filteredOutPRs) {
-        // Determine reason for filtering out (basic implementation - can be enhanced)
-        let reason = 'Does not match filter criteria';
+        // Get specific filtering reason from our tracking
+        const { getFilterReasons } = require('./filters');
         
         // Handle both single dependency and multiple dependency PRs
         if (pr.dependencyInfoList && pr.dependencyInfoList.length > 0) {
           // Multiple dependencies
           for (const depInfo of pr.dependencyInfoList) {
-            // Check specific reasons
-            if (filters.ignoredDependencies.includes(depInfo.name)) {
-              reason = 'Ignored dependency';
-            } else if (!filters.semverFilter.includes(depInfo.semverChange)) {
-              reason = `Semver change '${depInfo.semverChange}' not allowed`;
+            // Get the specific reason from our tracking, or use a default
+            const filterData = getFilterReasons(pr.number);
+            let reason = 'Does not match filter criteria';
+            
+            if (filterData && filterData.reasons && filterData.reasons.length > 0) {
+              // Use the first recorded reason
+              reason = filterData.reasons[0];
+            } else {
+              // Fallback checks if no tracked reason (shouldn't happen normally)
+              if (filters.ignoredDependencies.includes(depInfo.name)) {
+                reason = 'Ignored dependency';
+              } else if (!filters.semverFilter.includes(depInfo.semverChange)) {
+                reason = `Semver change '${depInfo.semverChange}' not allowed`;
+              }
             }
             
             const tableRow = `[#${pr.number}](${pr.html_url}) | ${depInfo.name} | ${depInfo.fromVersion} → ${depInfo.toVersion} | ${depInfo.semverChange} | ❌ ${reason}`;
@@ -186,11 +222,20 @@ async function addWorkflowSummary(eligiblePRs, filteredPRs, filters) {
           // Single dependency
           const { name, fromVersion, toVersion, semverChange } = pr.dependencyInfo;
           
-          // Check specific reasons
-          if (filters.ignoredDependencies.includes(name)) {
-            reason = 'Ignored dependency';
-          } else if (!filters.semverFilter.includes(semverChange)) {
-            reason = `Semver change '${semverChange}' not allowed`;
+          // Get the specific reason from our tracking, or use a default
+          const filterData = getFilterReasons(pr.number);
+          let reason = 'Does not match filter criteria';
+          
+          if (filterData && filterData.reasons && filterData.reasons.length > 0) {
+            // Use the first recorded reason
+            reason = filterData.reasons[0];
+          } else {
+            // Fallback checks if no tracked reason
+            if (filters.ignoredDependencies.includes(name)) {
+              reason = 'Ignored dependency';
+            } else if (!filters.semverFilter.includes(semverChange)) {
+              reason = `Semver change '${semverChange}' not allowed`;
+            }
           }
           
           const tableRow = `[#${pr.number}](${pr.html_url}) | ${name} | ${fromVersion} → ${toVersion} | ${semverChange} | ❌ ${reason}`;

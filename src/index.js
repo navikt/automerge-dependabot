@@ -2,7 +2,7 @@ const core = require('@actions/core');
 const github = require('@actions/github');
 const { findMergeablePRs } = require('./pullRequests');
 const { shouldRunAtCurrentTime } = require('./timeUtils');
-const { applyFilters } = require('./filters');
+const { applyFilters, resetFilterReasons } = require('./filters');
 const { addWorkflowSummary } = require('./summary');
 
 async function run() {
@@ -68,6 +68,9 @@ async function run() {
       ignoredVersions: ignoredVersions ? ignoredVersions.split(',').map(v => v.trim()) : [],
       semverFilter: semverFilter ? semverFilter.split(',').map(s => s.trim()) : ['patch', 'minor']
     };
+    
+    // Make sure to reset the filter reasons before each run to avoid stale data
+    resetFilterReasons();
     
     // Add information to GitHub workflow summary - do this regardless of whether PRs were found
     await addWorkflowSummary(pullRequests, [], filterOptions);
