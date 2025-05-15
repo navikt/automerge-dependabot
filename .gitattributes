@@ -1,0 +1,7 @@
+# Mark the dist directory as generated code
+dist/* linguist-generated=true
+dist/** linguist-generated=true
+
+# Exclude dist directory from GitHub code scanning
+dist/* -linguist-detectable
+dist/** -linguist-detectable
