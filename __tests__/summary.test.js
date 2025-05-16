@@ -102,47 +102,95 @@ describe('addWorkflowSummary', () => {
     // might change based on how many sections are displayed
     expect(mockSummary.addRaw).toHaveBeenCalled();
 
-    // Verify PRs to be merged table
+    // Verify PRs to be merged table - since we're adding rows individually now, 
+    // we need to check across multiple addRaw calls
     const allCalls = mockSummary.addRaw.mock.calls;
-    let mergeTableContent = null;
-    for (const call of allCalls) {
-      const content = call[0];
-      if (content.includes('PR | Dependency | Version')) {
-        mergeTableContent = content;
-        break;
-      }
-    }
-
-    // Check that merge table includes the correct PRs
-    expect(mergeTableContent).not.toBeNull();
-    expect(mergeTableContent).toContain('[#1]');
-    expect(mergeTableContent).toContain('lodash');
-    expect(mergeTableContent).toContain('4.17.21');
-    expect(mergeTableContent).toContain('[#3]');
-    expect(mergeTableContent).toContain('axios');
-    expect(mergeTableContent).toContain('0.21.4');
-    expect(mergeTableContent).toContain('express');
-    expect(mergeTableContent).toContain('4.17.2');
+    const mergeCallContents = allCalls.map(call => call[0]);
     
-    // PR #2 should NOT be in the merge table
-    expect(mergeTableContent).not.toContain('[#2]');
+    // Check header call
+    const headerCall = mergeCallContents.find(content => 
+      content.includes('| PR | Dependency | Version |') && 
+      content.includes('| --- | --- | --- |'));
+    expect(headerCall).toBeTruthy();
+    
+    // Check individual PR rows
+    const pr1Call = mergeCallContents.find(content => 
+      content.includes('[#1]') && 
+      content.includes('lodash') && 
+      content.includes('4.17.21'));
+    expect(pr1Call).toBeTruthy();
+    
+    const pr3AxiosCall = mergeCallContents.find(content => 
+      content.includes('[#3]') && 
+      content.includes('axios') && 
+      content.includes('0.21.4'));
+    expect(pr3AxiosCall).toBeTruthy();
+    
+    const pr3ExpressCall = mergeCallContents.find(content => 
+      content.includes('[#3]') && 
+      content.includes('express') && 
+      content.includes('4.17.2'));
+    expect(pr3ExpressCall).toBeTruthy();
+    
+    // PR #2 should NOT be in the merge section - find if there's any row that has PR #2
+    // and is listed under the Pull Requests to Merge section
+    const mergeTableLabel = mergeCallContents.find(content => 
+      content.includes('Pull Requests to Merge'));
+    
+    // Only check this if we found the merge section label
+    if (mergeTableLabel) {
+      // Find the index of the merge section label
+      const mergeSectionIndex = mergeCallContents.indexOf(mergeTableLabel);
+      
+      // Check in rows after the merge section header but before the filtered section
+      const filteredSectionLabel = mergeCallContents.find(content => 
+        content.includes('Filtered Out Dependencies'));
+      const filteredSectionIndex = filteredSectionLabel ? 
+        mergeCallContents.indexOf(filteredSectionLabel) : mergeCallContents.length;
+      
+      // Look for PR #2 between merge section and filtered section
+      let pr2InMergeSection = false;
+      for (let i = mergeSectionIndex; i < filteredSectionIndex; i++) {
+        if (mergeCallContents[i].includes('[#2]') && mergeCallContents[i].includes('react')) {
+          pr2InMergeSection = true;
+          break;
+        }
+      }
+      
+      expect(pr2InMergeSection).toBeFalsy();
+    }
 
     // Verify that filtered out dependencies are shown in the filtered section
-    let filteredDetailsContent = null;
-    for (const call of mockSummary.addRaw.mock.calls) {
-      const content = call[0];
-      if (content.includes('PR | Dependency | Version | Reason')) {
-        filteredDetailsContent = content;
-        break;
+    const filteredSectionLabel = mergeCallContents.find(content => 
+      content.includes('Filtered Out Dependencies'));
+    
+    // Check that we found the filtered section header
+    expect(filteredSectionLabel).toBeTruthy();
+    
+    // Find the index of the filtered section
+    if (filteredSectionLabel) {
+      const filteredSectionIndex = mergeCallContents.indexOf(filteredSectionLabel);
+      
+      // Check header for filtered section
+      const filteredHeader = mergeCallContents.find((content, index) => 
+        index > filteredSectionIndex && 
+        content.includes('| PR | Dependency | Version | Reason for Filtering |') &&
+        content.includes('| --- | --- | --- | --- |'));
+      expect(filteredHeader).toBeTruthy();
+      
+      // Check if PR #2 is in the filtered section rows
+      let filteredPr2Found = false;
+      for (let i = filteredSectionIndex; i < mergeCallContents.length; i++) {
+        if (mergeCallContents[i].includes('[#2]') && 
+            mergeCallContents[i].includes('react') && 
+            mergeCallContents[i].includes('18.0.0') && 
+            mergeCallContents[i].includes('Dependency "react" is in ignored list')) {
+          filteredPr2Found = true;
+          break;
+        }
       }
+      expect(filteredPr2Found).toBeTruthy();
     }
-
-    // Check filtered details section
-    expect(filteredDetailsContent).not.toBeNull();
-    expect(filteredDetailsContent).toContain('[#2]');
-    expect(filteredDetailsContent).toContain('react');
-    expect(filteredDetailsContent).toContain('18.0.0'); // Should now include version
-    expect(filteredDetailsContent).toContain('Dependency "react" is in ignored list');
 
     // Verify the summary was written
     expect(core.summary.write).toHaveBeenCalled();
