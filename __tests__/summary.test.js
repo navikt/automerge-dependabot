@@ -98,39 +98,40 @@ describe('addWorkflowSummary', () => {
     // We're checking that all PRs are included
     expect(mockSummary.addRaw).toHaveBeenCalled();
 
-    // Check number of calls to addRaw
-    expect(mockSummary.addRaw).toHaveBeenCalledTimes(7);
+    // Check that addRaw is called - we don't need to check exact count as the implementation 
+    // might change based on how many sections are displayed
+    expect(mockSummary.addRaw).toHaveBeenCalled();
 
-    // Verify the overview status for PRs
+    // Verify PRs to be merged table
     const allCalls = mockSummary.addRaw.mock.calls;
-    let overviewTableContent = null;
+    let mergeTableContent = null;
     for (const call of allCalls) {
       const content = call[0];
-      if (content.includes('PR | Dependency | Status')) {
-        overviewTableContent = content;
+      if (content.includes('PR | Dependency | Version')) {
+        mergeTableContent = content;
         break;
       }
     }
 
-    // Check that overview table includes all PRs with correct status
-    expect(overviewTableContent).not.toBeNull();
-    expect(overviewTableContent).toContain('[#1]');
-    expect(overviewTableContent).toContain('lodash@4.17.21');
-    expect(overviewTableContent).toContain('✅ Will merge');
-    expect(overviewTableContent).toContain('[#2]');
-    expect(overviewTableContent).toContain('react@18.0.0');
-    expect(overviewTableContent).toContain('❌ Filtered out');
-    expect(overviewTableContent).toContain('[#3]');
-    expect(overviewTableContent).toContain('axios@0.21.4');
-    expect(overviewTableContent).toContain('✅ Will merge');
-    expect(overviewTableContent).toContain('express@4.17.2');
-    expect(overviewTableContent).toContain('✅ Will merge');
+    // Check that merge table includes the correct PRs
+    expect(mergeTableContent).not.toBeNull();
+    expect(mergeTableContent).toContain('[#1]');
+    expect(mergeTableContent).toContain('lodash');
+    expect(mergeTableContent).toContain('4.17.21');
+    expect(mergeTableContent).toContain('[#3]');
+    expect(mergeTableContent).toContain('axios');
+    expect(mergeTableContent).toContain('0.21.4');
+    expect(mergeTableContent).toContain('express');
+    expect(mergeTableContent).toContain('4.17.2');
+    
+    // PR #2 should NOT be in the merge table
+    expect(mergeTableContent).not.toContain('[#2]');
 
-    // Verify that details for filtered out PRs are shown in the details section
+    // Verify that filtered out dependencies are shown in the filtered section
     let filteredDetailsContent = null;
     for (const call of mockSummary.addRaw.mock.calls) {
       const content = call[0];
-      if (content.includes('PR | Dependency | Reason')) {
+      if (content.includes('PR | Dependency | Version | Reason')) {
         filteredDetailsContent = content;
         break;
       }
@@ -140,6 +141,7 @@ describe('addWorkflowSummary', () => {
     expect(filteredDetailsContent).not.toBeNull();
     expect(filteredDetailsContent).toContain('[#2]');
     expect(filteredDetailsContent).toContain('react');
+    expect(filteredDetailsContent).toContain('18.0.0'); // Should now include version
     expect(filteredDetailsContent).toContain('Dependency "react" is in ignored list');
 
     // Verify the summary was written

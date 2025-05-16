@@ -42,10 +42,10 @@ async function addWorkflowSummary(allPRs, prsToMerge, filters) {
     // Add filter information
     const filterTable = [
       createTableHeader(['Filter Type', 'Value']),
-      `| Ignored Dependencies | ${filters.ignoredDependencies.length > 0 ? filters.ignoredDependencies.join(', ') : 'None'} |`,
-      `| Always Allow | ${filters.alwaysAllow.length > 0 ? filters.alwaysAllow.join(', ') : 'None'} |`,
-      `| Ignored Versions | ${filters.ignoredVersions.length > 0 ? filters.ignoredVersions.join(', ') : 'None'} |`,
-      `| Semver Filter | ${filters.semverFilter.join(', ')} |`
+      `| Ignored Dependencies | ${filters.ignoredDependencies.length > 0 ? filters.ignoredDependencies.join(', ') : 'None'} |\n`,
+      `| Always Allow | ${filters.alwaysAllow.length > 0 ? filters.alwaysAllow.join(', ') : 'None'} |\n`,
+      `| Ignored Versions | ${filters.ignoredVersions.length > 0 ? filters.ignoredVersions.join(', ') : 'None'} |\n`,
+      `| Semver Filter | ${filters.semverFilter.join(', ')} |\n`
     ].join('\n');
 
     core.summary.addRaw(filterTable + '\n\n');
@@ -74,35 +74,31 @@ async function addWorkflowSummary(allPRs, prsToMerge, filters) {
     /*
     * PRs to be Merged
     */
-    if (allPRs.length > 0) {
-      core.summary.addRaw(createSectionTitle('Pull Requests Overview') + '\n\n');
+    if (prsToMerge.length > 0) {
+      core.summary.addRaw(createSectionTitle('Pull Requests to Merge') + '\n\n');
       
       const prsToBeMergedTable = [
-        createTableHeader(['PR', 'Dependency', 'Status'])
+        createTableHeader(['PR', 'Dependency', 'Version'])
       ];
       
-      for (const pr of allPRs) {
-        const willBeMerged = prsToMerge.includes(pr);
-        const status = willBeMerged ? '✅ Will merge' : '❌ Filtered out';
-        
+      for (const pr of prsToMerge) {
         // For PRs that will be merged, we need to extract dependency info directly
-        // since successful results don't have filter reasons recorded
         if (pr.dependencyInfoList && pr.dependencyInfoList.length > 0) {
           // Handle multiple dependencies
           for (const depInfo of pr.dependencyInfoList) {
             if (depInfo.name) {
-              const tableRow = `| [#${pr.number}](${pr.html_url}) | ${depInfo.name}@${depInfo.toVersion} | ${status} |`;
+              const tableRow = `| [#${pr.number}](${pr.html_url}) | ${depInfo.name} | ${depInfo.toVersion} |`;
               prsToBeMergedTable.push(tableRow);
             }
           }
         } else if (pr.dependencyInfo && pr.dependencyInfo.name) {
           // Handle single dependency
           const depInfo = pr.dependencyInfo;
-          const tableRow = `| [#${pr.number}](${pr.html_url}) | ${depInfo.name}@${depInfo.toVersion} | ${status} |`;
+          const tableRow = `| [#${pr.number}](${pr.html_url}) | ${depInfo.name} | ${depInfo.toVersion} |`;
           prsToBeMergedTable.push(tableRow);
         } else {
           // Fallback if no dependency info is available
-          const tableRow = `| [#${pr.number}](${pr.html_url}) | Unknown | ${status} |`;
+          const tableRow = `| [#${pr.number}](${pr.html_url}) | Unknown | Unknown |`;
           prsToBeMergedTable.push(tableRow);
         }
       }
@@ -111,14 +107,14 @@ async function addWorkflowSummary(allPRs, prsToMerge, filters) {
     }
     
     /*
-    * Filtered Out PRs Details
+    * Filtered Out Dependencies
     */
     const filteredOutPRs = allPRs.filter(pr => !prsToMerge.includes(pr));
     if (filteredOutPRs.length > 0) {
-      core.summary.addRaw(createSectionTitle('Filtered Out PRs Details') + '\n\n');
+      core.summary.addRaw(createSectionTitle('Filtered Out Dependencies') + '\n\n');
       
       const filteredOutTable = [
-        createTableHeader(['PR', 'Dependency', 'Reason'])
+        createTableHeader(['PR', 'Dependency', 'Version', 'Reason for Filtering'])
       ];
       
       for (const pr of filteredOutPRs) {
@@ -129,19 +125,31 @@ async function addWorkflowSummary(allPRs, prsToMerge, filters) {
           // Show reasons for each dependency that was filtered
           for (const data of filterData) {
             const dependency = data.dependency;
+            let version = '';
+            
+            // Try to find version information for this dependency
+            if (pr.dependencyInfoList) {
+              const depInfo = pr.dependencyInfoList.find(info => info.name === dependency);
+              if (depInfo && depInfo.toVersion) {
+                version = depInfo.toVersion;
+              }
+            } else if (pr.dependencyInfo && pr.dependencyInfo.name === dependency) {
+              version = pr.dependencyInfo.toVersion;
+            }
+            
             // Skip generic reasons if they aren't for a specific dependency
             if (dependency !== 'general') {
-              const tableRow = `| [#${pr.number}](${pr.html_url}) | ${dependency} | ❌ ${data.reason} |`;
+              const tableRow = `| [#${pr.number}](${pr.html_url}) | ${dependency} | ${version} | ${data.reason} |`;
               filteredOutTable.push(tableRow);
             } else {
               // For general reasons, we'll just show "General" as the dependency
-              const tableRow = `| [#${pr.number}](${pr.html_url}) | General | ❌ ${data.reason} |`;
+              const tableRow = `| [#${pr.number}](${pr.html_url}) | General | - | ${data.reason} |`;
               filteredOutTable.push(tableRow);
             }
           }
         } else {
           // Fallback if no filter data is available
-          const tableRow = `| [#${pr.number}](${pr.html_url}) | Unknown | ❌ No specific reason recorded |`;
+          const tableRow = `| [#${pr.number}](${pr.html_url}) | Unknown | - | No specific reason recorded |`;
           filteredOutTable.push(tableRow);
         }
       }
