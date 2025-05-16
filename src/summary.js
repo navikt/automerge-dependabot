@@ -41,12 +41,12 @@ async function addWorkflowSummary(allPRs, prsToMerge, filters) {
     
     // Add filter information
     const filterTable = [
-        createTableHeader(['Filter Type', 'Value'])
-      ];
-    filterTable.push(`| Always Allow | ${filters.alwaysAllow.length > 0 ? filters.alwaysAllow.join(', ') : 'None'} |`);
-    filterTable.push(`| Ignored Versions | ${filters.ignoredVersions.length > 0 ? filters.ignoredVersions.join(', ') : 'None'} |`);
-    filterTable.push(`| Ignored Dependencies | ${filters.ignoredDependencies.length > 0 ? filters.ignoredDependencies.join(', ') : 'None'} |`);
-    filterTable.push(`| Semver Filter | ${filters.semverFilter.join(', ')} |`);
+        createTableHeader(['Filter Type', 'Value']),
+        `| Always Allow | ${filters.alwaysAllow.length > 0 ? filters.alwaysAllow.join(', ') : 'None'} |`,
+        `| Ignored Versions | ${filters.ignoredVersions.length > 0 ? filters.ignoredVersions.join(', ') : 'None'} |`,
+        `| Ignored Dependencies | ${filters.ignoredDependencies.length > 0 ? filters.ignoredDependencies.join(', ') : 'None'} |`,
+        `| Semver Filter | ${filters.semverFilter.join(', ')} |`
+    ].join('\n');
 
     core.summary.addRaw(filterTable + '\n\n');
 
