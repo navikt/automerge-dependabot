@@ -1,49 +1,61 @@
 const core = require('@actions/core');
 
 /**
- * Store the filtering reasons for a PR
- * Key: PR number
- * Value: Object with reason details
+ * Store filtering data with relationships between dependencies and PRs
+ * 
+ * Structure:
+ * {
+ *   dependencies: Map<String, Set<Number>>, // Maps dependency name to set of PR numbers
+ *   prReasons: Map<Number, Array<{dependency: String, reason: String}>> // Maps PR to dependency-specific reasons
+ * }
  */
-const filteringReasons = new Map();
+const filteringData = {
+  dependencies: new Map(),
+  prReasons: new Map()
+};
 
 /**
- * Record a filtering reason for a PR
+ * Record a filtering reason for a PR and specific dependency
  * 
  * @param {number} prNumber - The pull request number
+ * @param {string} dependency - The dependency name
  * @param {string} reason - The reason for filtering
  */
-function recordFilterReason(prNumber, reason) {
-  if (!filteringReasons.has(prNumber)) {
-    filteringReasons.set(prNumber, { reasons: [] });
+function recordFilterReason(prNumber, dependency, reason) {
+  // Track dependency to PR relationship
+  if (!filteringData.dependencies.has(dependency)) {
+    filteringData.dependencies.set(dependency, new Set());
   }
-  filteringReasons.get(prNumber).reasons.push(reason);
-}
-
-/**
- * Reset all stored filtering reasons
- */
-function resetFilterReasons() {
-  filteringReasons.clear();
+  filteringData.dependencies.get(dependency).add(prNumber);
+  
+  // Track PR to reasons relationship
+  if (!filteringData.prReasons.has(prNumber)) {
+    filteringData.prReasons.set(prNumber, []);
+  }
+  
+  filteringData.prReasons.get(prNumber).push({
+    dependency,
+    reason
+  });
 }
 
 /**
  * Get filtering reasons for a PR
  * 
  * @param {number} prNumber - The pull request number
- * @returns {Object|null} The filtering reasons for the PR or null if not found
+ * @returns {Array|null} Array of objects with dependency name and reason, or null if not found
  */
 function getFilterReasons(prNumber) {
-  return filteringReasons.has(prNumber) ? filteringReasons.get(prNumber) : null;
+  return filteringData.prReasons.has(prNumber) ? filteringData.prReasons.get(prNumber) : null;
 }
 
 /**
- * Get all filtering reasons
+ * Get all filter reasons
  * 
- * @returns {Map} Map of PR numbers to filtering reasons
+ * @returns {Map} Map of PR numbers to filter reasons
  */
 function getAllFilterReasons() {
-  return filteringReasons;
+  return filteringData.prReasons;
 }
 
 /**
@@ -84,6 +96,65 @@ function shouldAlwaysAllow(name, alwaysAllowList) {
 }
 
 /**
+ * Validate a single dependency against the filters
+ * 
+ * @param {number} prNumber - The pull request number
+ * @param {Object} dependencyInfo - The dependency information
+ * @param {Object} filters - The filter settings
+ * @returns {boolean} Whether the dependency passes all filters
+ */
+function validateDependency(prNumber, dependencyInfo, filters) {
+  const { ignoredDependencies, alwaysAllow = [], ignoredVersions, semverFilter } = filters;
+  const { name, toVersion, semverChange } = dependencyInfo || {};
+  
+  // Check if dependency info is complete
+  if (!name || !toVersion || !semverChange) {
+    const reason = 'Dependency missing required information';
+    recordFilterReason(prNumber, name || 'general', reason);
+    core.debug(`PR #${prNumber}: Dependency validation failed - ${reason}`);
+    return false;
+  }
+  
+  // Check if dependency is in ignored list
+  if (ignoredDependencies.some(dep => dep === name)) {
+    const reason = `Dependency "${name}" is in ignored list`;
+    recordFilterReason(prNumber, name, reason);
+    core.debug(`PR #${prNumber}: Dependency validation failed - ${reason}`);
+    return false;
+  }
+  
+  // Check if specific version is in ignored list
+  const versionMatches = ignoredVersions.some(ignoredVersion => {
+    const [ignoredName, ignoredVer] = ignoredVersion.split('@');
+    return ignoredName === name && (ignoredVer === toVersion || ignoredVer === '*');
+  });
+  
+  if (versionMatches) {
+    const reason = `Version "${name}@${toVersion}" is in ignored list`;
+    recordFilterReason(prNumber, name, reason);
+    core.debug(`PR #${prNumber}: Dependency validation failed - ${reason}`);
+    return false;
+  }
+  
+  // Check if dependency should always be allowed
+  if (shouldAlwaysAllow(name, alwaysAllow)) {
+    core.debug(`PR #${prNumber}: Bypassing semver filter for "${name}" - matches always-allow pattern`);
+    return true;
+  }
+  
+  // Check semver change level
+  if (!semverFilter.includes(semverChange)) {
+    const reason = `Semver change "${semverChange}" for "${name}" is not in allowed list: ${semverFilter.join(', ')}`;
+    recordFilterReason(prNumber, name, reason);
+    core.debug(`PR #${prNumber}: Dependency validation failed - ${reason}`);
+    return false;
+  }
+  
+  // Passed all checks
+  return true;
+}
+
+/**
  * Apply filters to pull requests
  * 
  * @param {Array} pullRequests - Array of pull requests
@@ -92,10 +163,7 @@ function shouldAlwaysAllow(name, alwaysAllowList) {
  */
 function applyFilters(pullRequests, filters) {
   const { ignoredDependencies, alwaysAllow = [], ignoredVersions, semverFilter } = filters;
-  
-  // Reset filtering reasons for a new run
-  resetFilterReasons();
-  
+
   core.info(`Applying filters: ${
     [
       ignoredDependencies.length > 0 ? `Ignored dependencies: ${ignoredDependencies.join(', ')}` : null,
@@ -109,7 +177,7 @@ function applyFilters(pullRequests, filters) {
     // Security check: Ensure PR is created by Dependabot
     if (!pr.user || pr.user.login !== 'dependabot[bot]') {
       const reason = `Not created by Dependabot (creator: ${pr.user?.login || 'unknown'})`;
-      recordFilterReason(pr.number, reason);
+      recordFilterReason(pr.number, 'general', reason);
       core.debug(`PR #${pr.number}: Skipping - ${reason}`);
       return false;
     }
@@ -118,48 +186,9 @@ function applyFilters(pullRequests, filters) {
     if (pr.dependencyInfoList && pr.dependencyInfoList.length > 0) {
       // For PRs with multiple dependencies, ALL dependencies must pass the filters
       for (const dependencyInfo of pr.dependencyInfoList) {
-        const { name, toVersion, semverChange } = dependencyInfo || {};
-        
-        // Skip the entire PR if any dependency info is incomplete
-        if (!name || !toVersion || !semverChange) {
-          const reason = 'Dependency missing info in multiple dependency PR';
-          recordFilterReason(pr.number, reason);
-          core.debug(`PR #${pr.number}: Skipping - ${reason}`);
-          return false;
-        }
-        
-        // Skip the entire PR if any dependency is in the ignored list
-        if (ignoredDependencies.some(dep => dep === name)) {
-          const reason = `Dependency "${name}" is in ignored list`;
-          recordFilterReason(pr.number, reason);
-          core.debug(`PR #${pr.number}: Skipping - ${reason}`);
-          return false;
-        }
-        
-        // Skip the entire PR if any version is in the ignored list
-        const versionMatches = ignoredVersions.some(ignoredVersion => {
-          const [ignoredName, ignoredVer] = ignoredVersion.split('@');
-          return ignoredName === name && (ignoredVer === toVersion || ignoredVer === '*');
-        });
-        
-        if (versionMatches) {
-          const reason = `Version "${name}@${toVersion}" is in ignored list`;
-          recordFilterReason(pr.number, reason);
-          core.debug(`PR #${pr.number}: Skipping - ${reason}`);
-          return false;
-        }
-        
-        // Skip semver check for this dependency if it matches always allow pattern
-        if (shouldAlwaysAllow(name, alwaysAllow)) {
-          core.debug(`PR #${pr.number}: Bypassing semver filter for "${name}" - matches always-allow pattern`);
-          continue;
-        }
-        
-        // Skip the entire PR if any semver change level is not allowed
-        if (!semverFilter.includes(semverChange)) {
-          const reason = `Semver change "${semverChange}" for "${name}" is not in allowed list: ${semverFilter.join(', ')}`;
-          recordFilterReason(pr.number, reason);
-          core.debug(`PR #${pr.number}: Skipping - ${reason}`);
+        const isValid = validateDependency(pr.number, dependencyInfo, filters);
+        if (!isValid) {
+          // If any dependency fails validation, filter out the entire PR
           return false;
         }
       }
@@ -174,56 +203,17 @@ function applyFilters(pullRequests, filters) {
       // Skip if dependencyInfo is undefined
       if (!dependencyInfo) {
         const reason = 'No dependency info available';
-        recordFilterReason(pr.number, reason);
+        recordFilterReason(pr.number, 'general', reason);
         core.debug(`PR #${pr.number}: Skipping - ${reason}`);
+        return false;
+      }
+      
+      const isValid = validateDependency(pr.number, dependencyInfo, filters);
+      if (!isValid) {
         return false;
       }
       
       const { name, toVersion, semverChange } = dependencyInfo;
-      
-      // Skip if no dependency info could be extracted
-      if (!name || !toVersion || !semverChange) {
-        const reason = `Could not extract dependency info from title "${pr.title}"`;
-        recordFilterReason(pr.number, reason);
-        core.debug(`PR #${pr.number}: Skipping - ${reason}`);
-        return false;
-      }
-      
-      // Check if dependency is in ignored list
-      if (ignoredDependencies.some(dep => dep === name)) {
-        const reason = `Dependency "${name}" is in ignored list`;
-        recordFilterReason(pr.number, reason);
-        core.debug(`PR #${pr.number}: Skipping - ${reason}`);
-        return false;
-      }
-      
-      // Check if specific version is in ignored list
-      const versionMatches = ignoredVersions.some(ignoredVersion => {
-        const [ignoredName, ignoredVer] = ignoredVersion.split('@');
-        return ignoredName === name && (ignoredVer === toVersion || ignoredVer === '*');
-      });
-      
-      if (versionMatches) {
-        const reason = `Version "${name}@${toVersion}" is in ignored list`;
-        recordFilterReason(pr.number, reason);
-        core.debug(`PR #${pr.number}: Skipping - ${reason}`);
-        return false;
-      }
-      
-      // Check if dependency should always be allowed
-      if (shouldAlwaysAllow(name, alwaysAllow)) {
-        core.debug(`PR #${pr.number}: Bypassing semver filter - "${name}" matches always-allow pattern`);
-        return true;
-      }
-      
-      // Check semver change level
-      if (!semverFilter.includes(semverChange)) {
-        const reason = `Semver change "${semverChange}" is not in allowed list: ${semverFilter.join(', ')}`;
-        recordFilterReason(pr.number, reason);
-        core.debug(`PR #${pr.number}: Skipping - ${reason}`);
-        return false;
-      }
-      
       core.debug(`PR #${pr.number}: Passed all filters - ${name}@${toVersion} (${semverChange} change)`);
       return true;
     }
@@ -235,6 +225,6 @@ module.exports = {
   shouldAlwaysAllow,
   getFilterReasons,
   getAllFilterReasons,
-  resetFilterReasons,
-  recordFilterReason
+  recordFilterReason,
+  validateDependency
 };

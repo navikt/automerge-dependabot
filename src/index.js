@@ -2,7 +2,7 @@ const core = require('@actions/core');
 const github = require('@actions/github');
 const { findMergeablePRs } = require('./pullRequests');
 const { shouldRunAtCurrentTime } = require('./timeUtils');
-const { applyFilters, resetFilterReasons } = require('./filters');
+const { applyFilters } = require('./filters');
 const { addWorkflowSummary } = require('./summary');
 
 async function run() {
@@ -50,10 +50,7 @@ async function run() {
     if (!shouldRunAtCurrentTime(blackoutPeriods)) {
       inBlackoutPeriod = true;
       core.info('Action is in a blackout period. Skipping execution.');
-    } else {
-      // Make sure to reset the filter reasons before each run to avoid stale data
-      resetFilterReasons();
-      
+    } else {      
       // Create octokit client
       const octokit = github.getOctokit(token);
       const context = github.context;

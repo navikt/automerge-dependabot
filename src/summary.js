@@ -1,8 +1,5 @@
 const core = require('@actions/core');
 
-// For testing purposes - will store summary content when in test mode
-let summaryContent = null;
-
 /**
  * Creates a summary section title
  * 
@@ -36,26 +33,10 @@ function createTableHeader(columns) {
  */
 async function addWorkflowSummary(eligiblePRs, filteredPRs, filters) {
   try {
-    // Reset summary content for testing
-    summaryContent = '';
-    
-    // Collection of summary sections for testing
-    const summaryParts = {
-      title: 'Dependabot Automerge Summary',
-      filters: {},
-      prCount: { eligible: eligiblePRs.length, toMerge: filteredPRs.length },
-      prsToMerge: [],
-      prsFilteredOut: []
-    };
-    
     // Start with a header
-    await core.summary.addHeading('Dependabot Automerge Summary');
-    summaryContent += '# Dependabot Automerge Summary\n\n';
+    core.summary.addHeading('Dependabot Automerge Summary');
     
-    // Add filter info
-    await core.summary.addRaw(createSectionTitle('Applied Filters') + '\n\n');
-    summaryContent += `${createSectionTitle('Applied Filters')}\n\n`;
-    
+    // Add filter information
     const filterTable = [
       createTableHeader(['Filter Type', 'Value']),
       `Ignored Dependencies | ${filters.ignoredDependencies.length > 0 ? filters.ignoredDependencies.join(', ') : 'None'}`,
@@ -64,20 +45,12 @@ async function addWorkflowSummary(eligiblePRs, filteredPRs, filters) {
       `Semver Filter | ${filters.semverFilter.join(', ')}`
     ].join('\n');
 
-    await core.summary.addRaw(filterTable + '\n\n');
-    summaryContent += `${filterTable}\n\n`;
-    
-    // Add to summary parts for testing
-    summaryParts.filters = {
-      ignoredDependencies: filters.ignoredDependencies.length > 0 ? filters.ignoredDependencies.join(', ') : 'None',
-      alwaysAllow: filters.alwaysAllow.length > 0 ? filters.alwaysAllow.join(', ') : 'None',
-      ignoredVersions: filters.ignoredVersions.length > 0 ? filters.ignoredVersions.join(', ') : 'None',
-      semverFilter: filters.semverFilter.join(', ')
-    };
-    
-    // Add PR summary
-    await core.summary.addRaw(createSectionTitle('Pull Request Summary') + '\n\n');
-    summaryContent += `${createSectionTitle('Pull Request Summary')}\n\n`;
+    core.summary.addRaw(filterTable + '\n\n');
+
+    /*
+    * Pull Request Summary
+    */
+    core.summary.addRaw(createSectionTitle('Pull Request Summary') + '\n\n');
     
     if (eligiblePRs.length === 0 && filteredPRs.length === 0) {
       // Check if it's a blackout period
@@ -90,191 +63,96 @@ async function addWorkflowSummary(eligiblePRs, filteredPRs, filters) {
         message = 'Action is currently in a blackout period. No PRs will be merged during this time.';
       }
       
-      await core.summary.addRaw(message + '\n\n');
-      summaryContent += `${message}\n\n`;
-      
-      // Extract early filter reasons from pullRequests module to show why PRs weren't eligible
-      const { getEarlyFilterReasons } = require('./pullRequests');
-      const earlyReasons = getEarlyFilterReasons();
-      
-      if (earlyReasons && earlyReasons.size > 0) {
-        const reasonsHeader = 'PR filtering explanation:';
-        await core.summary.addRaw(reasonsHeader + '\n\n');
-        summaryContent += `${reasonsHeader}\n\n`;
-        
-        // Show specific PR filtering details
-        const specificDetails = [];
-        for (const [prNumber, data] of earlyReasons.entries()) {
-          if (data.reasons && data.reasons.length > 0) {
-            specificDetails.push(`- PR #${prNumber}: ${data.reasons.join(', ')}`);
-          }
-        }
-        
-        if (specificDetails.length > 0) {
-          await core.summary.addRaw(specificDetails.join('\n') + '\n\n');
-          summaryContent += `${specificDetails.join('\n')}\n\n`;
-        }
-      }
+      core.summary.addRaw(message + '\n\n');
     } else {
-      await core.summary.addRaw(`Found ${eligiblePRs.length} eligible PR(s), ${filteredPRs.length} will be merged.\n\n`);
-      summaryContent += `Found ${eligiblePRs.length} eligible PR(s), ${filteredPRs.length} will be merged.\n\n`;
+      core.summary.addRaw(`Found ${eligiblePRs.length} eligible PR(s), ${filteredPRs.length} will be merged.\n\n`);
     }
     
-    // Add PR details for filtered PRs
-    if (filteredPRs.length > 0) {
-      await core.summary.addRaw(createSectionTitle('PRs to Merge') + '\n\n');
-      summaryContent += `${createSectionTitle('PRs to Merge')}\n\n`;
+    /*
+    * Eligible PRs Table
+    */
+    if (eligiblePRs.length > 0) {
+      core.summary.addRaw(createSectionTitle('Eligible PRs') + '\n\n');
       
-      const prTable = [
-        createTableHeader(['PR', 'Dependency', 'From → To', 'Change Level', 'Status'])
+      const eligibleTable = [
+        createTableHeader(['PR', 'Dependency', 'Status'])
       ];
       
-      for (const pr of filteredPRs) {
-        // Handle both single dependency and multiple dependency PRs
-        if (pr.dependencyInfoList && pr.dependencyInfoList.length > 0) {
-          // Multiple dependencies
-          for (const depInfo of pr.dependencyInfoList) {
-            const tableRow = `[#${pr.number}](${pr.html_url}) | ${depInfo.name} | ${depInfo.fromVersion} → ${depInfo.toVersion} | ${depInfo.semverChange} | ✅ Will merge`;
-            prTable.push(tableRow);
-            
-            // Add to summary parts for testing
-            summaryParts.prsToMerge.push({
-              prNumber: pr.number,
-              dependency: depInfo.name,
-              fromVersion: depInfo.fromVersion,
-              toVersion: depInfo.toVersion,
-              semverChange: depInfo.semverChange
-            });
+      // Get dependency information from filters module
+      const getFilterReasons = require('./filters');
+      
+      for (const pr of eligiblePRs) {
+        const isFiltered = filteredPRs.includes(pr);
+        const status = isFiltered ? '✅ Will merge' : '❌ Filtered out';
+        
+        // Get filter reasons which contain dependency info
+        const filterData = getFilterReasons(pr.number);
+        
+        if (filterData && filterData.length > 0) {
+          // Show a row for each dependency associated with this PR
+          for (const data of filterData) {
+            if (data.dependency !== 'general') {
+              const tableRow = `[#${pr.number}](${pr.html_url}) | ${data.dependency} | ${status}`;
+              eligibleTable.push(tableRow);
+            }
           }
-        } else if (pr.dependencyInfo) {
-          // Single dependency
-          const { name, fromVersion, toVersion, semverChange } = pr.dependencyInfo;
-          const tableRow = `[#${pr.number}](${pr.html_url}) | ${name} | ${fromVersion} → ${toVersion} | ${semverChange} | ✅ Will merge`;
-          prTable.push(tableRow);
-          
-          // Add to summary parts for testing
-          summaryParts.prsToMerge.push({
-            prNumber: pr.number,
-            dependency: name,
-            fromVersion,
-            toVersion,
-            semverChange
-          });
         }
       }
       
-      await core.summary.addRaw(prTable.join('\n') + '\n\n');
-      summaryContent += `${prTable.join('\n')}\n\n`;
+      core.summary.addRaw(eligibleTable.join('\n') + '\n\n');
     }
     
-    // Add info about PRs that were filtered out
+    /*
+    * Filtered Out PRs
+    */
     const filteredOutPRs = eligiblePRs.filter(pr => !filteredPRs.includes(pr));
     if (filteredOutPRs.length > 0) {
-      await core.summary.addRaw(createSectionTitle('PRs Filtered Out') + '\n\n');
-      summaryContent += `${createSectionTitle('PRs Filtered Out')}\n\n`;
+      core.summary.addRaw(createSectionTitle('Filtered Out PRs') + '\n\n');
       
       const filteredOutTable = [
-        createTableHeader(['PR', 'Dependency', 'From → To', 'Change Level', 'Reason'])
+        createTableHeader(['PR', 'Dependency', 'Reason'])
       ];
       
       for (const pr of filteredOutPRs) {
         // Get specific filtering reason from our tracking
         const { getFilterReasons } = require('./filters');
         
-        // Handle both single dependency and multiple dependency PRs
-        if (pr.dependencyInfoList && pr.dependencyInfoList.length > 0) {
-          // Multiple dependencies
-          for (const depInfo of pr.dependencyInfoList) {
-            // Get the specific reason from our tracking, or use a default
-            const filterData = getFilterReasons(pr.number);
-            let reason = 'Does not match filter criteria';
-            
-            if (filterData && filterData.reasons && filterData.reasons.length > 0) {
-              // Use the first recorded reason
-              reason = filterData.reasons[0];
+        // Get the filter data for this PR
+        const filterData = getFilterReasons(pr.number);
+        
+        if (filterData && filterData.length > 0) {
+          // Show reasons for each dependency that was filtered
+          for (const data of filterData) {
+            const dependency = data.dependency;
+            // Skip generic reasons if they aren't for a specific dependency
+            if (dependency !== 'general') {
+              const tableRow = `[#${pr.number}](${pr.html_url}) | ${dependency} | ❌ ${data.reason}`;
+              filteredOutTable.push(tableRow);
             } else {
-              // Fallback checks if no tracked reason (shouldn't happen normally)
-              if (filters.ignoredDependencies.includes(depInfo.name)) {
-                reason = 'Ignored dependency';
-              } else if (!filters.semverFilter.includes(depInfo.semverChange)) {
-                reason = `Semver change '${depInfo.semverChange}' not allowed`;
-              }
-            }
-            
-            const tableRow = `[#${pr.number}](${pr.html_url}) | ${depInfo.name} | ${depInfo.fromVersion} → ${depInfo.toVersion} | ${depInfo.semverChange} | ❌ ${reason}`;
-            filteredOutTable.push(tableRow);
-            
-            // Add to summary parts for testing
-            summaryParts.prsFilteredOut.push({
-              prNumber: pr.number,
-              dependency: depInfo.name,
-              fromVersion: depInfo.fromVersion,
-              toVersion: depInfo.toVersion,
-              semverChange: depInfo.semverChange,
-              reason
-            });
-          }
-        } else if (pr.dependencyInfo) {
-          // Single dependency
-          const { name, fromVersion, toVersion, semverChange } = pr.dependencyInfo;
-          
-          // Get the specific reason from our tracking, or use a default
-          const filterData = getFilterReasons(pr.number);
-          let reason = 'Does not match filter criteria';
-          
-          if (filterData && filterData.reasons && filterData.reasons.length > 0) {
-            // Use the first recorded reason
-            reason = filterData.reasons[0];
-          } else {
-            // Fallback checks if no tracked reason
-            if (filters.ignoredDependencies.includes(name)) {
-              reason = 'Ignored dependency';
-            } else if (!filters.semverFilter.includes(semverChange)) {
-              reason = `Semver change '${semverChange}' not allowed`;
+              // For general reasons, we'll just show "General" as the dependency
+              const tableRow = `[#${pr.number}](${pr.html_url}) | General | ❌ ${data.reason}`;
+              filteredOutTable.push(tableRow);
             }
           }
-          
-          const tableRow = `[#${pr.number}](${pr.html_url}) | ${name} | ${fromVersion} → ${toVersion} | ${semverChange} | ❌ ${reason}`;
+        } else {
+          // Fallback if no filter data is available
+          const tableRow = `[#${pr.number}](${pr.html_url}) | Unknown | ❌ No specific reason recorded`;
           filteredOutTable.push(tableRow);
-          
-          // Add to summary parts for testing
-          summaryParts.prsFilteredOut.push({
-            prNumber: pr.number,
-            dependency: name,
-            fromVersion,
-            toVersion,
-            semverChange,
-            reason
-          });
         }
       }
       
-      await core.summary.addRaw(filteredOutTable.join('\n') + '\n\n');
-      summaryContent += `${filteredOutTable.join('\n')}\n\n`;
+      core.summary.addRaw(filteredOutTable.join('\n') + '\n\n');
     }
     
     // Write the summary to the workflow
     await core.summary.write();
     core.info('Added workflow summary with dependency decisions and PR information');
-    
-    // Return summary parts for testing
-    return summaryParts;
   } catch (error) {
     core.warning(`Failed to add workflow summary: ${error.message}`);
     return null;
   }
 }
 
-/**
- * Get the current summary content (for testing)
- * 
- * @returns {string} The current summary content
- */
-function getSummaryContent() {
-  return summaryContent;
-}
-
 module.exports = {
-  addWorkflowSummary,
-  getSummaryContent
+  addWorkflowSummary
 };

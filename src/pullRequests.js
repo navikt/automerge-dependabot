@@ -1,40 +1,7 @@
 const core = require('@actions/core');
 const timeUtils = require('./timeUtils');
-
-/**
- * Track early filtering reasons (before passing to filters module)
- */
-const earlyFilterReasons = new Map();
-
-/**
- * Record a reason for filtering out a PR early
- * 
- * @param {number} prNumber - The pull request number
- * @param {string} reason - The reason for filtering
- */
-function recordEarlyFilterReason(prNumber, reason) {
-  if (!earlyFilterReasons.has(prNumber)) {
-    earlyFilterReasons.set(prNumber, { reasons: [] });
-  }
-  earlyFilterReasons.get(prNumber).reasons.push(reason);
-}
-
-/**
- * Get all early filter reasons
- * 
- * @returns {Map} Map of PR numbers to early filter reasons
- */
-function getEarlyFilterReasons() {
-  return earlyFilterReasons;
-}
-
-/**
- * Reset all early filter reasons
- */
-function resetEarlyFilterReasons() {
-  earlyFilterReasons.clear();
-}
 const semver = require('semver');
+const { recordFilterReason } = require('../src/filters');
 
 /**
  * Determine semver change level between two versions
@@ -51,8 +18,8 @@ function determineSemverChange(fromVersion, toVersion) {
   if (!fromVersion || !toVersion || typeof fromVersion !== 'string' || typeof toVersion !== 'string') {
     return semverChange;
   }
-  
-  // Handle common non-semver patterns explicitly
+
+   // Handle common non-semver patterns explicitly
   // Check for commit hashes (Git SHA-like strings)
   const isFromHash = /^[a-f0-9]{7,40}$/i.test(fromVersion);
   const isToHash = /^[a-f0-9]{7,40}$/i.test(toVersion);
@@ -96,9 +63,6 @@ function determineSemverChange(fromVersion, toVersion) {
 async function findMergeablePRs(octokit, owner, repo, minimumAgeInDays) {
   core.info('Finding eligible pull requests for auto-merging...');
   
-  // Reset early filter reasons for a new run
-  resetEarlyFilterReasons();
-  
   // Get open pull requests created by Dependabot
   const { data: pullRequests } = await octokit.rest.pulls.list({
     owner,
@@ -118,7 +82,7 @@ async function findMergeablePRs(octokit, owner, repo, minimumAgeInDays) {
   for (const pr of pullRequests) {
     // Skip if not from Dependabot
     if (pr.user.login !== 'dependabot[bot]') {
-      recordEarlyFilterReason(pr.number, `Not created by Dependabot (creator: ${pr.user.login})`);
+      recordFilterReason(pr.number, pr.packageName, `Not created by Dependabot (creator: ${pr.user.login})`);
       continue;
     }
     
@@ -126,7 +90,7 @@ async function findMergeablePRs(octokit, owner, repo, minimumAgeInDays) {
     const createdAt = new Date(pr.created_at);
     if (timeUtils.isAfter(createdAt, minimumAge)) {
       const reason = `Too recent (${timeUtils.fromNow(createdAt)}, needs to be at least ${minimumAgeInDays} days old)`;
-      recordEarlyFilterReason(pr.number, reason);
+      recordFilterReason(pr.number, pr.packageName, reason);
       core.debug(`PR #${pr.number} is ${reason}`);
       continue;
     }
@@ -139,7 +103,7 @@ async function findMergeablePRs(octokit, owner, repo, minimumAgeInDays) {
     });
     
     if (!prDetails.mergeable) {
-      recordEarlyFilterReason(pr.number, 'Not in mergeable state');
+      recordFilterReason(pr.number, pr.packageName, 'Not in mergeable state');
       core.debug(`PR #${pr.number} is not mergeable`);
       continue;
     }
@@ -159,7 +123,7 @@ async function findMergeablePRs(octokit, owner, repo, minimumAgeInDays) {
     
     if (nonDependabotCommits.length > 0) {
       const reason = 'contains commits from authors other than Dependabot';
-      recordEarlyFilterReason(pr.number, `${reason} (security risk)`);
+      recordFilterReason(pr.number, pr.packageName, `${reason} (security risk)`);
       core.warning(`PR #${pr.number} ${reason}`);
       for (const commit of nonDependabotCommits) {
         core.debug(`  Non-Dependabot commit: ${commit.sha.substring(0, 7)} from ${commit.author?.login || 'unknown'}`);
@@ -175,7 +139,7 @@ async function findMergeablePRs(octokit, owner, repo, minimumAgeInDays) {
     });
     
     if (combinedStatus.state === 'failure') {
-      recordEarlyFilterReason(pr.number, 'Has failing status checks');
+      recordFilterReason(pr.number, pr.packageName, 'Has failing status checks');
       core.debug(`PR #${pr.number} has failing status checks`);
       continue;
     }
@@ -197,7 +161,7 @@ async function findMergeablePRs(octokit, owner, repo, minimumAgeInDays) {
     );
     
     if (hasBlockingReviews) {
-      recordEarlyFilterReason(pr.number, 'Has blocking reviews');
+      recordFilterReason(pr.number, pr.packageName, 'Has blocking reviews');
       core.debug(`PR #${pr.number} has blocking reviews`);
       continue;
     }
@@ -349,7 +313,5 @@ module.exports = {
   findMergeablePRs,
   extractDependencyInfo,
   extractMultipleDependencyInfo,
-  determineSemverChange,
-  getEarlyFilterReasons,
-  resetEarlyFilterReasons
+  determineSemverChange
 };

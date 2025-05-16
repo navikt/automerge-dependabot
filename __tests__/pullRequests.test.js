@@ -1,4 +1,4 @@
-const { findMergeablePRs, extractMultipleDependencyInfo, getEarlyFilterReasons, resetEarlyFilterReasons } = require('../src/pullRequests');
+const { findMergeablePRs, extractMultipleDependencyInfo } = require('../src/pullRequests');
 const core = require('@actions/core');
 
 // Mock dependencies
@@ -837,80 +837,6 @@ Dependabot will resolve any conflicts with this PR as long as you don't alter it
         toVersion: '4.20.0',
         semverChange: 'minor'
       });
-    });
-  });
-
-  describe('Early filtering reasons', () => {
-    beforeEach(() => {
-      resetEarlyFilterReasons();
-    });
-    
-    test('should record and retrieve early filtering reasons', async () => {
-      // Mock GitHub API client and responses
-      const mockOctokit = {
-        rest: {
-          pulls: {
-            list: jest.fn().mockResolvedValue({
-              data: [
-                {
-                  number: 1,
-                  title: 'PR not from Dependabot',
-                  user: { login: 'user1' },
-                  head: { ref: 'feature/something', sha: 'abc123' },
-                  created_at: '2025-05-10T10:00:00Z'
-                },
-                {
-                  number: 2,
-                  title: 'Bump lodash from 4.17.20 to 4.17.21',
-                  user: { login: 'dependabot[bot]' },
-                  head: { ref: 'dependabot/npm_and_yarn/lodash-4.17.21', sha: 'def456' },
-                  created_at: '2025-05-14T10:00:00Z' // Too recent
-                }
-              ]
-            }),
-            get: jest.fn().mockResolvedValue({
-              data: {
-                number: 2,
-                mergeable: null // Not mergeable
-              }
-            }),
-            listCommits: jest.fn().mockResolvedValue({ data: [] }),
-            listReviews: jest.fn().mockResolvedValue({ data: [] })
-          },
-          repos: {
-            getCombinedStatusForRef: jest.fn().mockResolvedValue({
-              data: { state: 'success' }
-            })
-          }
-        }
-      };
-      
-      // Set current date for testing
-      global.Date = class extends Date {
-        constructor() {
-          if (arguments.length === 0) {
-            super('2025-05-15T12:00:00Z');
-          } else {
-            super(...arguments);
-          }
-        }
-      };
-      
-      // Run the test with a requirement of 2 days old
-      await findMergeablePRs(mockOctokit, 'owner', 'repo', 2);
-      
-      // Check that reasons were recorded
-      const reasons = getEarlyFilterReasons();
-      
-      // PR #1 should be filtered for not being from Dependabot
-      const pr1Reason = reasons.get(1);
-      expect(pr1Reason).toBeDefined();
-      expect(pr1Reason.reasons[0]).toContain('Not created by Dependabot');
-      
-      // PR #2 should be filtered for being too recent
-      const pr2Reason = reasons.get(2);
-      expect(pr2Reason).toBeDefined();
-      expect(pr2Reason.reasons[0]).toContain('Too recent');
     });
   });
 });

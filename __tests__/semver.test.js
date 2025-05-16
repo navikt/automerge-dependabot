@@ -59,4 +59,8 @@ describe('Semver Handling', () => {
     expect(determineSemverChange('abc1234def5678abc1234def5678abc1234', 
                                 'def5678abc1234def5678abc1234def5678')).toBe('unknown');
   });
+
+  test('should not allow downgrades', () => {
+    expect(determineSemverChange('2.0.0', '1.0.0')).toBe('unknown');
+  });
 });
