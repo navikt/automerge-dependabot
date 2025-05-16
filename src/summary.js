@@ -41,12 +41,12 @@ async function addWorkflowSummary(allPRs, prsToMerge, filters) {
     
     // Add filter information
     const filterTable = [
-      createTableHeader(['Filter Type', 'Value']),
-      `| Ignored Dependencies | ${filters.ignoredDependencies.length > 0 ? filters.ignoredDependencies.join(', ') : 'None'} |\n`,
-      `| Always Allow | ${filters.alwaysAllow.length > 0 ? filters.alwaysAllow.join(', ') : 'None'} |\n`,
-      `| Ignored Versions | ${filters.ignoredVersions.length > 0 ? filters.ignoredVersions.join(', ') : 'None'} |\n`,
-      `| Semver Filter | ${filters.semverFilter.join(', ')} |\n`
-    ].join('\n');
+        createTableHeader(['Filter Type', 'Value'])
+      ];
+    filterTable.push(`| Always Allow | ${filters.alwaysAllow.length > 0 ? filters.alwaysAllow.join(', ') : 'None'} |`);
+    filterTable.push(`| Ignored Versions | ${filters.ignoredVersions.length > 0 ? filters.ignoredVersions.join(', ') : 'None'} |`);
+    filterTable.push(`| Ignored Dependencies | ${filters.ignoredDependencies.length > 0 ? filters.ignoredDependencies.join(', ') : 'None'} |`);
+    filterTable.push(`| Semver Filter | ${filters.semverFilter.join(', ')} |`);
 
     core.summary.addRaw(filterTable + '\n\n');
 
