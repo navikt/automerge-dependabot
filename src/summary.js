@@ -18,8 +18,8 @@ function createSectionTitle(title) {
  */
 function createTableHeader(columns) {
   return [
-    columns.join(' | '),
-    columns.map(() => '---').join(' | ')
+    '| ' + columns.join(' | ') + ' |',
+    '| ' + columns.map(() => '---').join(' | ') + ' |'
   ].join('\n');
 }
 
@@ -42,10 +42,10 @@ async function addWorkflowSummary(allPRs, prsToMerge, filters) {
     // Add filter information
     const filterTable = [
       createTableHeader(['Filter Type', 'Value']),
-      `Ignored Dependencies | ${filters.ignoredDependencies.length > 0 ? filters.ignoredDependencies.join(', ') : 'None'}`,
-      `Always Allow | ${filters.alwaysAllow.length > 0 ? filters.alwaysAllow.join(', ') : 'None'}`,
-      `Ignored Versions | ${filters.ignoredVersions.length > 0 ? filters.ignoredVersions.join(', ') : 'None'}`,
-      `Semver Filter | ${filters.semverFilter.join(', ')}`
+      `| Ignored Dependencies | ${filters.ignoredDependencies.length > 0 ? filters.ignoredDependencies.join(', ') : 'None'} |`,
+      `| Always Allow | ${filters.alwaysAllow.length > 0 ? filters.alwaysAllow.join(', ') : 'None'} |`,
+      `| Ignored Versions | ${filters.ignoredVersions.length > 0 ? filters.ignoredVersions.join(', ') : 'None'} |`,
+      `| Semver Filter | ${filters.semverFilter.join(', ')} |`
     ].join('\n');
 
     core.summary.addRaw(filterTable + '\n\n');
@@ -91,18 +91,18 @@ async function addWorkflowSummary(allPRs, prsToMerge, filters) {
           // Handle multiple dependencies
           for (const depInfo of pr.dependencyInfoList) {
             if (depInfo.name) {
-              const tableRow = `[#${pr.number}](${pr.html_url}) | ${depInfo.name}@${depInfo.toVersion} | ${status}`;
+              const tableRow = `| [#${pr.number}](${pr.html_url}) | ${depInfo.name}@${depInfo.toVersion} | ${status} |`;
               prsToBeMergedTable.push(tableRow);
             }
           }
         } else if (pr.dependencyInfo && pr.dependencyInfo.name) {
           // Handle single dependency
           const depInfo = pr.dependencyInfo;
-          const tableRow = `[#${pr.number}](${pr.html_url}) | ${depInfo.name}@${depInfo.toVersion} | ${status}`;
+          const tableRow = `| [#${pr.number}](${pr.html_url}) | ${depInfo.name}@${depInfo.toVersion} | ${status} |`;
           prsToBeMergedTable.push(tableRow);
         } else {
           // Fallback if no dependency info is available
-          const tableRow = `[#${pr.number}](${pr.html_url}) | Unknown | ${status}`;
+          const tableRow = `| [#${pr.number}](${pr.html_url}) | Unknown | ${status} |`;
           prsToBeMergedTable.push(tableRow);
         }
       }
@@ -131,17 +131,17 @@ async function addWorkflowSummary(allPRs, prsToMerge, filters) {
             const dependency = data.dependency;
             // Skip generic reasons if they aren't for a specific dependency
             if (dependency !== 'general') {
-              const tableRow = `[#${pr.number}](${pr.html_url}) | ${dependency} | ❌ ${data.reason}`;
+              const tableRow = `| [#${pr.number}](${pr.html_url}) | ${dependency} | ❌ ${data.reason} |`;
               filteredOutTable.push(tableRow);
             } else {
               // For general reasons, we'll just show "General" as the dependency
-              const tableRow = `[#${pr.number}](${pr.html_url}) | General | ❌ ${data.reason}`;
+              const tableRow = `| [#${pr.number}](${pr.html_url}) | General | ❌ ${data.reason} |`;
               filteredOutTable.push(tableRow);
             }
           }
         } else {
           // Fallback if no filter data is available
-          const tableRow = `[#${pr.number}](${pr.html_url}) | Unknown | ❌ No specific reason recorded`;
+          const tableRow = `| [#${pr.number}](${pr.html_url}) | Unknown | ❌ No specific reason recorded |`;
           filteredOutTable.push(tableRow);
         }
       }
