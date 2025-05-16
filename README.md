@@ -25,7 +25,7 @@ This action automatically merges pull requests created by Dependabot with a set 
 The token requires the following permissions:
 - `contents: write` - To allow the merge operation to modify repository contents
 
-Note: Using GITHUB_TOKEN will not trigger on.push events, recommend using a [github app token](https://github.com/actions/create-github-app-token). See example below.
+Note: Using GITHUB_TOKEN will not trigger on.push events, recommend using a [github app token](https://github.com/actions/create-github-app-token) & merge-method squash to merge as App-login. See example below.
 
 ### `minimum-age-of-pr`
 

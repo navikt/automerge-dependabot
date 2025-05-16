@@ -83,23 +83,27 @@ async function addWorkflowSummary(allPRs, prsToMerge, filters) {
       
       for (const pr of allPRs) {
         const willBeMerged = prsToMerge.includes(pr);
-        // Skip this PR if it is not ready to be merged
-        if (!willBeMerged) {
-          continue;
-        }
-        const status = '✅ Will merge';
+        const status = willBeMerged ? '✅ Will merge' : '❌ Filtered out';
         
-        // Get filter reasons which contain dependency info
-        const filterData = getFilterReasons(pr.number);
-        
-        if (filterData && filterData.length > 0) {
-          // Show a row for each dependency associated with this PR
-          for (const data of filterData) {
-            if (data.dependency !== 'general') {
-              const tableRow = `[#${pr.number}](${pr.html_url}) | ${data.dependency} | ${status}`;
+        // For PRs that will be merged, we need to extract dependency info directly
+        // since successful results don't have filter reasons recorded
+        if (pr.dependencyInfoList && pr.dependencyInfoList.length > 0) {
+          // Handle multiple dependencies
+          for (const depInfo of pr.dependencyInfoList) {
+            if (depInfo.name) {
+              const tableRow = `[#${pr.number}](${pr.html_url}) | ${depInfo.name}@${depInfo.toVersion} | ${status}`;
               prsToBeMergedTable.push(tableRow);
             }
           }
+        } else if (pr.dependencyInfo && pr.dependencyInfo.name) {
+          // Handle single dependency
+          const depInfo = pr.dependencyInfo;
+          const tableRow = `[#${pr.number}](${pr.html_url}) | ${depInfo.name}@${depInfo.toVersion} | ${status}`;
+          prsToBeMergedTable.push(tableRow);
+        } else {
+          // Fallback if no dependency info is available
+          const tableRow = `[#${pr.number}](${pr.html_url}) | Unknown | ${status}`;
+          prsToBeMergedTable.push(tableRow);
         }
       }
       
@@ -107,11 +111,11 @@ async function addWorkflowSummary(allPRs, prsToMerge, filters) {
     }
     
     /*
-    * Filtered Out PRs
+    * Filtered Out PRs Details
     */
     const filteredOutPRs = allPRs.filter(pr => !prsToMerge.includes(pr));
     if (filteredOutPRs.length > 0) {
-      core.summary.addRaw(createSectionTitle('Filtered Out PRs') + '\n\n');
+      core.summary.addRaw(createSectionTitle('Filtered Out PRs Details') + '\n\n');
       
       const filteredOutTable = [
         createTableHeader(['PR', 'Dependency', 'Reason'])
