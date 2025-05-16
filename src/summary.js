@@ -33,6 +33,9 @@ function createTableHeader(columns) {
  */
 async function addWorkflowSummary(eligiblePRs, filteredPRs, filters) {
   try {
+    // Import filter functions
+    const { getFilterReasons } = require('./filters');
+    
     // Start with a header
     core.summary.addHeading('Dependabot Automerge Summary');
     
@@ -78,9 +81,6 @@ async function addWorkflowSummary(eligiblePRs, filteredPRs, filters) {
         createTableHeader(['PR', 'Dependency', 'Status'])
       ];
       
-      // Get dependency information from filters module
-      const getFilterReasons = require('./filters');
-      
       for (const pr of eligiblePRs) {
         const isFiltered = filteredPRs.includes(pr);
         const status = isFiltered ? '✅ Will merge' : '❌ Filtered out';
@@ -114,9 +114,6 @@ async function addWorkflowSummary(eligiblePRs, filteredPRs, filters) {
       ];
       
       for (const pr of filteredOutPRs) {
-        // Get specific filtering reason from our tracking
-        const { getFilterReasons } = require('./filters');
-        
         // Get the filter data for this PR
         const filterData = getFilterReasons(pr.number);
         
