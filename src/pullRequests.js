@@ -34,11 +34,24 @@ function determineSemverChange(fromVersion, toVersion) {
     const cleanedToVersion = semver.valid(semver.coerce(toVersion));
     
     if (cleanedFromVersion && cleanedToVersion) {
-      if (semver.major(cleanedToVersion) > semver.major(cleanedFromVersion)) {
+      const fromMajor = semver.major(cleanedFromVersion);
+      const toMajor = semver.major(cleanedToVersion);
+      const fromMinor = semver.minor(cleanedFromVersion);
+      const toMinor = semver.minor(cleanedToVersion);
+      const fromPatch = semver.patch(cleanedFromVersion);
+      const toPatch = semver.patch(cleanedToVersion);
+      
+      // Check for downgrades (when the to version is lower than the from version)
+      if (semver.lt(cleanedToVersion, cleanedFromVersion)) {
+        // For downgrades, keep the semver change as 'unknown'
+        semverChange = 'unknown';
+      }
+      // Only handle upgrades with semver labels (not downgrades)
+      else if (toMajor > fromMajor) {
         semverChange = 'major';
-      } else if (semver.minor(cleanedToVersion) > semver.minor(cleanedFromVersion)) {
+      } else if (toMinor > fromMinor) {
         semverChange = 'minor';
-      } else if (semver.patch(cleanedToVersion) > semver.patch(cleanedFromVersion)) {
+      } else if (toPatch > fromPatch) {
         semverChange = 'patch';
       }
       // If versions are equal after coercion, keep as 'unknown'
@@ -103,7 +116,7 @@ async function findMergeablePRs(octokit, owner, repo, minimumAgeInDays) {
     });
     
     if (!prDetails.mergeable) {
-      recordFilterReason(pr.number, pr.packageName, 'Not in mergeable state');
+      recordFilterReason(pr.number, null, 'Not in mergeable state');
       core.debug(`PR #${pr.number} is not mergeable`);
       continue;
     }

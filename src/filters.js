@@ -125,8 +125,17 @@ function validateDependency(prNumber, dependencyInfo, filters) {
   
   // Check if specific version is in ignored list
   const versionMatches = ignoredVersions.some(ignoredVersion => {
+    // Split the ignored entry into name and version parts
     const [ignoredName, ignoredVer] = ignoredVersion.split('@');
-    return ignoredName === name && (ignoredVer === toVersion || ignoredVer === '*');
+    
+    // Check if the name matches and either:
+    // 1. The version matches exactly
+    // 2. The ignored version is a wildcard '*'
+    // 3. The version part is undefined meaning ignore all versions
+    return (
+      ignoredName === name && 
+      (ignoredVer === toVersion || ignoredVer === '*' || ignoredVer === undefined)
+    );
   });
   
   if (versionMatches) {

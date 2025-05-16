@@ -26,12 +26,12 @@ function createTableHeader(columns) {
 /**
  * Adds PR information to the workflow summary
  * 
- * @param {Array} eligiblePRs - Array of eligible PRs before filtering
- * @param {Array} filteredPRs - Array of PRs after filtering that will be merged
+ * @param {Array} allPRs - Array of all PRs retrieved from GitHub before filtering
+ * @param {Array} prsToMerge - Array of PRs after filtering that will be merged
  * @param {Object} filters - Filtering rules that were applied
  * @returns {Promise<void>}
  */
-async function addWorkflowSummary(eligiblePRs, filteredPRs, filters) {
+async function addWorkflowSummary(allPRs, prsToMerge, filters) {
   try {
     // Import filter functions
     const { getFilterReasons } = require('./filters');
@@ -55,35 +55,39 @@ async function addWorkflowSummary(eligiblePRs, filteredPRs, filters) {
     */
     core.summary.addRaw(createSectionTitle('Pull Request Summary') + '\n\n');
     
-    if (eligiblePRs.length === 0 && filteredPRs.length === 0) {
+    if (allPRs.length === 0 && prsToMerge.length === 0) {
       // Check if it's a blackout period
       const { shouldRunAtCurrentTime } = require('./timeUtils');
       const blackoutPeriods = core.getInput('blackout-periods');
       const isInBlackoutPeriod = blackoutPeriods && !shouldRunAtCurrentTime(blackoutPeriods);
       
-      let message = 'No eligible PRs found.';
+      let message = 'No pull requests found that meet basic criteria.';
       if (isInBlackoutPeriod) {
         message = 'Action is currently in a blackout period. No PRs will be merged during this time.';
       }
       
       core.summary.addRaw(message + '\n\n');
     } else {
-      core.summary.addRaw(`Found ${eligiblePRs.length} eligible PR(s), ${filteredPRs.length} will be merged.\n\n`);
+      core.summary.addRaw(`Found ${allPRs.length} pull request(s), ${prsToMerge.length} will be merged.\n\n`);
     }
     
     /*
-    * Eligible PRs Table
+    * PRs to be Merged
     */
-    if (eligiblePRs.length > 0) {
-      core.summary.addRaw(createSectionTitle('Eligible PRs') + '\n\n');
+    if (allPRs.length > 0) {
+      core.summary.addRaw(createSectionTitle('Pull Requests Overview') + '\n\n');
       
-      const eligibleTable = [
+      const prsToBeMergedTable = [
         createTableHeader(['PR', 'Dependency', 'Status'])
       ];
       
-      for (const pr of eligiblePRs) {
-        const isFiltered = filteredPRs.includes(pr);
-        const status = isFiltered ? '✅ Will merge' : '❌ Filtered out';
+      for (const pr of allPRs) {
+        const willBeMerged = prsToMerge.includes(pr);
+        // Skip this PR if it is not ready to be merged
+        if (!willBeMerged) {
+          continue;
+        }
+        const status = '✅ Will merge';
         
         // Get filter reasons which contain dependency info
         const filterData = getFilterReasons(pr.number);
@@ -93,19 +97,19 @@ async function addWorkflowSummary(eligiblePRs, filteredPRs, filters) {
           for (const data of filterData) {
             if (data.dependency !== 'general') {
               const tableRow = `[#${pr.number}](${pr.html_url}) | ${data.dependency} | ${status}`;
-              eligibleTable.push(tableRow);
+              prsToBeMergedTable.push(tableRow);
             }
           }
         }
       }
       
-      core.summary.addRaw(eligibleTable.join('\n') + '\n\n');
+      core.summary.addRaw(prsToBeMergedTable.join('\n') + '\n\n');
     }
     
     /*
     * Filtered Out PRs
     */
-    const filteredOutPRs = eligiblePRs.filter(pr => !filteredPRs.includes(pr));
+    const filteredOutPRs = allPRs.filter(pr => !prsToMerge.includes(pr));
     if (filteredOutPRs.length > 0) {
       core.summary.addRaw(createSectionTitle('Filtered Out PRs') + '\n\n');
       
