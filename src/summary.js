@@ -36,11 +36,9 @@ async function addWorkflowSummary(allPRs, prsToMerge, filters) {
     // Import filter functions
     const { getFilterReasons } = require('./filters');
     
-    // Start with a header
-    core.summary.addHeading('Dependabot Automerge Summary');
-    
-    // Add filter information with proper spacing for GitHub Actions summary 
-    core.summary.addRaw(createSectionTitle('Applied Filters') + '\n\n');
+    // Start with a header (or two)
+    core.summary.addHeading('Dependabot Automerge Summary', 1);
+    core.summary.addHeading('Applied Filters', 2);
     
     // Add each table row separately instead of joining them to ensure proper rendering
     core.summary.addRaw(createTableHeader(['Filter Type', 'Value']) + '\n');
