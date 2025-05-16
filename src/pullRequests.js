@@ -186,8 +186,8 @@ async function findMergeablePRs(octokit, owner, repo, minimumAgeInDays) {
     };
 
     // Check if PR title matches multiple dependency pattern
-    const isMultipleDependencyPR = pr.title.match(/Bump ([^ ]+) and ([^ ]+)( in ([^ ]+))?/) || 
-                                  pr.title.match(/Bump the ([^ ]+)( group| across| with| in| updates|[ ]+)+/);
+    const isMultipleDependencyPR = pr.title.match(/Bump([s]?) ([^ ]+) and ([^ ]+)( in ([^ ]+))?/) || 
+                                  pr.title.match(/Bump([s]?) the ([^ ]+)( group| across| with| in| updates|[ ]+)+/);
 
     if (isMultipleDependencyPR) {
       prData.dependencyInfoList = extractMultipleDependencyInfo(pr.title, pr.body);
@@ -278,10 +278,10 @@ function extractMultipleDependencyInfo(title, body) {
   }
 
   // Expected format: "Bump the dependabot-group across X directory with Z updates"
-  const matchDependencyGroup = title.match(/Bump the ([^ ]+)( group| across| with| in| updates|[ ]+)+/);
+  // or "Bumps the maven group in /app with 3 updates"
+  const matchDependencyGroup = title.match(/Bump([s]?) the ([^ ]+)( group| across| with| in| updates|[ ]+)+/);
   if (matchDependencyGroup) {
-    // Extract dependency information from the markdown table in the PR body
-    // Match only table rows with exactly 3 cells (Package, From, To)
+    // First, try to extract dependency information from the markdown table in the PR body
     const tableRegex = /\|\s*([^|\n]+?)\s*\|\s*`?([^`|\n]+)`?\s*\|\s*`?([^`|\n]+)`?\s*\|/g;
     const dependencies = [];
     
@@ -314,6 +314,31 @@ function extractMultipleDependencyInfo(title, body) {
         toVersion,
         semverChange
       });
+    }
+    
+    // If we found dependencies from the table, return them
+    if (dependencies.length > 0) {
+      return dependencies;
+    }
+    
+    // No table found, try to extract from the "Updates" format
+    const updateMatches = body.match(/Updates [`']?([^`'\s]+)[`']? from ([0-9.]+) to ([0-9.]+)/g);
+    if (updateMatches) {
+      return updateMatches.map(match => {
+        const updateMatch = match.match(/Updates [`']?([^`'\s]+)[`']? from ([0-9.]+) to ([0-9.]+)/);
+        if (!updateMatch) return null;
+        
+        const [, name, fromVersion, toVersion] = updateMatch;
+        // Determine semver change level
+        const semverChange = determineSemverChange(fromVersion, toVersion);
+        
+        return {
+          name,
+          fromVersion,
+          toVersion,
+          semverChange
+        };
+      }).filter(item => item !== null);
     }
     
     return dependencies;

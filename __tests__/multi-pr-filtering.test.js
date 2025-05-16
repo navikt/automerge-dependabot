@@ -95,9 +95,9 @@ describe('Multiple PR filtering scenario', () => {
         "minimum-age-of-pr": "3",
         "blackout-periods": "",
         "ignored-dependencies": "path-to-regexp@*,express,react@19.1.0,react-dom@19.1.0",
-        "always-allow": "",
+        "always-allow": "gradle/actions",
         "ignored-versions": "react-scripts@4.0.0",
-        "semver-filter": "minor,patch,major",
+        "semver-filter": "minor,patch",
         "merge-method": "merge"
       };
       return inputs[name] || '';
@@ -183,9 +183,13 @@ describe('Multiple PR filtering scenario', () => {
     // Verify workflow summary was generated
     expect(mockAddWorkflowSummary).toHaveBeenCalledTimes(1);
     
-    // Verify that only PR #12 was merged, PR #11 shouldn't be merged because it contains express,
-    // PR #13 should be filtered out because of missing dependency info,
-    // PR #14 should be filtered out because it contains react-scripts@4.0.0 in the ignored versions
+    // Verify workflow summary was generated
+    expect(mockAddWorkflowSummary).toHaveBeenCalledTimes(1);
+    
+    // PR #11 contains 'express' which is in ignored-dependencies
+    // PR #14 contains react-scripts@4.0.0 which is in ignored-versions
+    // PR #13 contains org.springframework.boot:spring-boot-starter-web major upgrade from 2.8.0 to 3.4.5
+    // Only PR #12 should be merged
     expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledTimes(1);
     expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -209,14 +213,14 @@ describe('Multiple PR filtering scenario', () => {
       expect.stringContaining('PR #11: Dependency validation failed - Dependency "express" is in ignored list')
     );
 
-    // PR #13 is failing due to missing dependency info, let's verify that
+    // PR #13 contains a major upgrade in the springframework dependency
     expect(core.debug).toHaveBeenCalledWith(
-      expect.stringContaining('PR #13: Dependency validation failed - Dependency missing required information')
+      expect.stringContaining('PR #13: Dependency validation failed - Semver change "major" for "org.springframework.boot:spring-boot-starter-web" is not in allowed list')
     );
     
-    // PR #14 is failing due to react-scripts being in the ignored versions list
+    // PR #14 is failing due to a major semver change
     expect(core.debug).toHaveBeenCalledWith(
-      expect.stringContaining('PR #14: Dependency validation failed - Version "react-scripts@4.0.0" is in ignored list')
+      expect.stringContaining('PR #14: Dependency validation failed - Semver change "major" for "@testing-library/jest-dom" is not in allowed list')
     );
     
     // Logging should mention processing 4 PRs
