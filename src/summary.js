@@ -41,6 +41,7 @@ async function addWorkflowSummary(allPRs, prsToMerge, filters) {
     core.summary.addHeading('Applied Filters', 2);
     
     // Add each table row separately instead of joining them to ensure proper rendering
+    core.summary.addRaw('\n'); // Test to see if this helps with rendering
     core.summary.addRaw(createTableHeader(['Filter Type', 'Value']) + '\n');
     core.summary.addRaw(`| Always Allow | ${filters.alwaysAllow.length > 0 ? filters.alwaysAllow.join(', ') : 'None'} |\n`);
     core.summary.addRaw(`| Ignored Versions | ${filters.ignoredVersions.length > 0 ? filters.ignoredVersions.join(', ') : 'None'} |\n`);
