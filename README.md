@@ -358,38 +358,38 @@ When a Dependabot PR is detected, it goes through this comprehensive filtering a
 
 ```mermaid
 flowchart TD
-    A[Dependabot PR Found] --> B{Is PR author dependabot[bot]?}
+    A[Dependabot PR Found] --> B{"Is PR author dependabot?"}
     B -->|No| C[Skip PR - Security Check Failed]
-    B -->|Yes| D{Is PR old enough?<br/>minimum-age-of-pr}
+    B -->|Yes| D{"Is PR old enough?<br/>minimum-age-of-pr"}
     D -->|No| E[Skip PR - Too Recent]
     D -->|Yes| F[Check PR Mergeability]
-    F --> G{Is mergeable state null?}
+    F --> G{"Is mergeable state null?"}
     G -->|Yes| H[Wait retry-delay-ms]
-    H --> I{Retry < 3 attempts?}
+    H --> I{"Retry < 3 attempts?"}
     I -->|Yes| F
     I -->|No| J[Skip PR - Mergeability Unknown]
-    G -->|No| K{Is PR mergeable?}
+    G -->|No| K{"Is PR mergeable?"}
     K -->|No| L[Skip PR - Not Mergeable]
-    K -->|Yes| M{All commits from dependabot[bot]?}
+    K -->|Yes| M{"All commits from dependabot?"}
     M -->|No| N[Skip PR - Security Risk]
-    M -->|Yes| O{Status checks passing?}
+    M -->|Yes| O{"Status checks passing?"}
     O -->|No| P[Skip PR - Failing Checks]
-    O -->|Yes| Q{Any blocking reviews?}
+    O -->|Yes| Q{"Any blocking reviews?"}
     Q -->|Yes| R[Skip PR - Blocked Reviews]
     Q -->|No| S[Extract Dependency Info]
-    S --> T{Is dependency info complete?<br/>name, toVersion, semverChange}
+    S --> T{"Is dependency info complete?<br/>name, toVersion, semverChange"}
     T -->|No| U[Skip Dependency - Missing Info]
-    T -->|Yes| V{Is dependency in ignored-dependencies?}
+    T -->|Yes| V{"Is dependency in ignored-dependencies?"}
     V -->|Yes| W[Skip Dependency - In Ignored List]
-    V -->|No| X{Is version in ignored-versions?<br/>name@version or name@*}
+    V -->|No| X{"Is version in ignored-versions?<br/>name@version or name@*"}
     X -->|Yes| Y[Skip Dependency - Version Ignored]
-    X -->|No| Z{Does dependency match always-allow pattern?<br/>*, exact match, name:string, prefix}
+    X -->|No| Z{"Does dependency match always-allow pattern?<br/>*, exact match, name:string, prefix"}
     Z -->|Yes| AA[Merge Dependency - Always Allowed]
-    Z -->|No| BB{Is semver change level in semver-filter?<br/>major, minor, patch}
+    Z -->|No| BB{"Is semver change level in semver-filter?<br/>major, minor, patch"}
     BB -->|Yes| CC[Merge Dependency - Semver Allowed]
     BB -->|No| DD[Skip Dependency - Semver Filtered]
     
-    EE[Multi-dependency PR] --> FF{Do ALL dependencies pass filters?}
+    EE[Multi-dependency PR] --> FF{"Do ALL dependencies pass filters?"}
     FF -->|No| GG[Skip Entire PR]
     FF -->|Yes| HH[Merge PR]
     
