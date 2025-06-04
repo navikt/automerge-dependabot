@@ -29,9 +29,10 @@ function createTableHeader(columns) {
  * @param {Array} allPRs - Array of all PRs retrieved from GitHub before filtering
  * @param {Array} prsToMerge - Array of PRs after filtering that will be merged
  * @param {Object} filters - Filtering rules that were applied
+ * @param {Array} initialPRs - Array of all initial PRs found (including those filtered in basic criteria)
  * @returns {Promise<void>}
  */
-async function addWorkflowSummary(allPRs, prsToMerge, filters) {
+async function addWorkflowSummary(allPRs, prsToMerge, filters, initialPRs = []) {
   try {
     // Import filter functions
     const { getFilterReasons } = require('./filters');
@@ -59,14 +60,23 @@ async function addWorkflowSummary(allPRs, prsToMerge, filters) {
       const blackoutPeriods = core.getInput('blackout-periods');
       const isInBlackoutPeriod = blackoutPeriods && !shouldRunAtCurrentTime(blackoutPeriods);
       
-      let message = 'No pull requests found that meet basic criteria.';
+      let message;
       if (isInBlackoutPeriod) {
         message = 'Action is currently in a blackout period. No PRs will be merged during this time.';
+      } else if (initialPRs.length > 0) {
+        message = `Found ${initialPRs.length} open pull request(s), but none met the basic criteria for auto-merging.`;
+      } else {
+        message = 'No open pull requests found in the repository.';
       }
       
       core.summary.addRaw(message + '\n\n');
     } else {
-      core.summary.addRaw(`Found ${allPRs.length} pull request(s), ${prsToMerge.length} will be merged.\n\n`);
+      let summaryMessage = `Found ${allPRs.length} pull request(s) that met basic criteria`;
+      if (initialPRs.length > allPRs.length) {
+        summaryMessage += ` (out of ${initialPRs.length} total open PRs)`;
+      }
+      summaryMessage += `, ${prsToMerge.length} will be merged.`;
+      core.summary.addRaw(summaryMessage + '\n\n');
     }
     
     /*
@@ -147,6 +157,35 @@ async function addWorkflowSummary(allPRs, prsToMerge, filters) {
         } else {
           // Fallback if no filter data is available
           const tableRow = `| [#${pr.number}](${pr.html_url}) | Unknown | - | No specific reason recorded |`;
+          core.summary.addRaw(tableRow + '\n');
+        }
+      }
+      
+      core.summary.addRaw('\n');
+    }
+    
+    /*
+    * PRs Filtered Out During Basic Criteria
+    */
+    if (initialPRs.length > 0 && allPRs.length === 0) {
+      // Show PRs that were filtered out during basic criteria phase
+      core.summary.addRaw(createSectionTitle('Pull Requests Filtered Out (Basic Criteria)') + '\n\n');
+      
+      // Add the table header first
+      core.summary.addRaw(createTableHeader(['PR', 'Title', 'Reason for Filtering']) + '\n');
+      
+      for (const pr of initialPRs) {
+        // Get the filter data for this PR
+        const filterData = getFilterReasons(pr.number);
+        
+        if (filterData && filterData.length > 0) {
+          // Show the first/main reason for filtering
+          const mainReason = filterData[0];
+          const tableRow = `| [#${pr.number}](${pr.html_url}) | ${pr.title} | ${mainReason.reason} |`;
+          core.summary.addRaw(tableRow + '\n');
+        } else {
+          // Fallback if no filter data is available
+          const tableRow = `| [#${pr.number}](${pr.html_url}) | ${pr.title} | No specific reason recorded |`;
           core.summary.addRaw(tableRow + '\n');
         }
       }

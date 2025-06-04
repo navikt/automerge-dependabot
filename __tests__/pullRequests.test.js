@@ -71,9 +71,9 @@ describe('PullRequests Module', () => {
     
     const result = await findMergeablePRs(mockOctokit, 'owner', 'repo', 1);
     
-    expect(result.length).toBe(1);
-    expect(result[0].number).toBe(1);
-    expect(result[0].dependencyInfo.name).toBe('lodash');
+    expect(result.eligiblePRs.length).toBe(1);
+    expect(result.eligiblePRs[0].number).toBe(1);
+    expect(result.eligiblePRs[0].dependencyInfo.name).toBe('lodash');
   });
   
   test('should filter out PRs that are not from Dependabot', async () => {
@@ -90,7 +90,7 @@ describe('PullRequests Module', () => {
     
     const result = await findMergeablePRs(mockOctokit, 'owner', 'repo', 0);
     
-    expect(result.length).toBe(0);
+    expect(result.eligiblePRs.length).toBe(0);
   });
   
   test('should filter out PRs with non-Dependabot commits', async () => {
@@ -131,7 +131,7 @@ describe('PullRequests Module', () => {
     
     const result = await findMergeablePRs(mockOctokit, 'owner', 'repo', 0);
     
-    expect(result.length).toBe(0);
+    expect(result.eligiblePRs.length).toBe(0);
     expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('contains commits from authors other than Dependabot'));
   });
   
@@ -170,7 +170,7 @@ describe('PullRequests Module', () => {
     
     const result = await findMergeablePRs(mockOctokit, 'owner', 'repo', 0);
     
-    expect(result.length).toBe(0);
+    expect(result.eligiblePRs.length).toBe(0);
     expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('contains commits from authors other than Dependabot'));
   });
   
@@ -209,7 +209,7 @@ describe('PullRequests Module', () => {
     
     const result = await findMergeablePRs(mockOctokit, 'owner', 'repo', 2);
     
-    expect(result.length).toBe(0);
+    expect(result.eligiblePRs.length).toBe(0);
   });
   
   test('should filter out PRs that are not mergeable', async () => {
@@ -247,7 +247,7 @@ describe('PullRequests Module', () => {
     
     const result = await findMergeablePRs(mockOctokit, 'owner', 'repo', 0);
     
-    expect(result.length).toBe(0);
+    expect(result.eligiblePRs.length).toBe(0);
   });
 
   test('should handle null mergeable state with retry logic', async () => {
@@ -292,8 +292,8 @@ describe('PullRequests Module', () => {
 
     const result = await findMergeablePRs(mockOctokit, 'owner', 'repo', 3, 20);
 
-    expect(result).toHaveLength(1);
-    expect(result[0].number).toBe(1);
+    expect(result.eligiblePRs).toHaveLength(1);
+    expect(result.eligiblePRs[0].number).toBe(1);
     
     // Verify that pulls.get was called twice due to retry logic
     expect(mockOctokit.rest.pulls.get).toHaveBeenCalledTimes(2);
@@ -328,7 +328,7 @@ describe('PullRequests Module', () => {
 
     const result = await findMergeablePRs(mockOctokit, 'owner', 'repo', 3, 10);
 
-    expect(result).toHaveLength(0);
+    expect(result.eligiblePRs).toHaveLength(0);
     
     // Verify that pulls.get was called 3 times (max retries)
     expect(mockOctokit.rest.pulls.get).toHaveBeenCalledTimes(3);
@@ -377,8 +377,8 @@ describe('PullRequests Module', () => {
 
     const result = await findMergeablePRs(mockOctokit, 'owner', 'repo', 3, 20);
 
-    expect(result).toHaveLength(1);
-    expect(result[0].number).toBe(1);
+    expect(result.eligiblePRs).toHaveLength(1);
+    expect(result.eligiblePRs[0].number).toBe(1);
     
     // Verify that pulls.get was called twice due to retry after error
     expect(mockOctokit.rest.pulls.get).toHaveBeenCalledTimes(2);
@@ -422,7 +422,7 @@ describe('PullRequests Module', () => {
     
     const result = await findMergeablePRs(mockOctokit, 'owner', 'repo', 0);
     
-    expect(result.length).toBe(0);
+    expect(result.eligiblePRs.length).toBe(0);
   });
   
   test('should filter out PRs with blocking reviews', async () => {
@@ -469,7 +469,7 @@ describe('PullRequests Module', () => {
     
     const result = await findMergeablePRs(mockOctokit, 'owner', 'repo', 0);
     
-    expect(result.length).toBe(0);
+    expect(result.eligiblePRs.length).toBe(0);
   });
 
   test('should handle PRs with multiple dependency updates', async () => {
@@ -535,14 +535,14 @@ Updates dependency-B from 2.1.0 to 3.0.0
     
     const result = await findMergeablePRs(mockOctokit, 'owner', 'repo', 1);
     
-    expect(result.length).toBe(1);
-    expect(result[0].number).toBe(1);
-    expect(result[0].dependencyInfoList).toBeDefined();
-    expect(result[0].dependencyInfoList.length).toBe(2);
-    expect(result[0].dependencyInfoList[0].name).toBe('dependency-A');
-    expect(result[0].dependencyInfoList[0].semverChange).toBe('minor');
-    expect(result[0].dependencyInfoList[1].name).toBe('dependency-B');
-    expect(result[0].dependencyInfoList[1].semverChange).toBe('major');
+    expect(result.eligiblePRs.length).toBe(1);
+    expect(result.eligiblePRs[0].number).toBe(1);
+    expect(result.eligiblePRs[0].dependencyInfoList).toBeDefined();
+    expect(result.eligiblePRs[0].dependencyInfoList.length).toBe(2);
+    expect(result.eligiblePRs[0].dependencyInfoList[0].name).toBe('dependency-A');
+    expect(result.eligiblePRs[0].dependencyInfoList[0].semverChange).toBe('minor');
+    expect(result.eligiblePRs[0].dependencyInfoList[1].name).toBe('dependency-B');
+    expect(result.eligiblePRs[0].dependencyInfoList[1].semverChange).toBe('major');
   });
 
   test('should handle PRs with dependency group updates', async () => {
@@ -611,14 +611,14 @@ Updates dependency-B from 2.1.0 to 3.0.0
     
     const result = await findMergeablePRs(mockOctokit, 'owner', 'repo', 1);
     
-    expect(result.length).toBe(1);
-    expect(result[0].number).toBe(1);
-    expect(result[0].dependencyInfoList).toBeDefined();
-    expect(result[0].dependencyInfoList.length).toBe(6);
-    expect(result[0].dependencyInfoList[0].name).toBe('org.flywaydb:flyway-database-postgresql');
-    expect(result[0].dependencyInfoList[0].semverChange).toBe('patch');
-    expect(result[0].dependencyInfoList[1].name).toBe('org.verapdf:validation-model');
-    expect(result[0].dependencyInfoList[1].semverChange).toBe('minor');
+    expect(result.eligiblePRs.length).toBe(1);
+    expect(result.eligiblePRs[0].number).toBe(1);
+    expect(result.eligiblePRs[0].dependencyInfoList).toBeDefined();
+    expect(result.eligiblePRs[0].dependencyInfoList.length).toBe(6);
+    expect(result.eligiblePRs[0].dependencyInfoList[0].name).toBe('org.flywaydb:flyway-database-postgresql');
+    expect(result.eligiblePRs[0].dependencyInfoList[0].semverChange).toBe('patch');
+    expect(result.eligiblePRs[0].dependencyInfoList[1].name).toBe('org.verapdf:validation-model');
+    expect(result.eligiblePRs[0].dependencyInfoList[1].semverChange).toBe('minor');
   });
 
   describe('extractMultipleDependencyInfo', () => {

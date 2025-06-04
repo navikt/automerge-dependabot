@@ -2,7 +2,7 @@ const { Command } = require('commander');
 const github = require('@actions/github');
 const { findMergeablePRs } = require('./pullRequests');
 const { shouldRunAtCurrentTime } = require('./timeUtils');
-const { applyFilters } = require('./filters');
+const { applyFilters, getAllFilterReasons } = require('./filters');
 
 /**
  * Parse GitHub repository URL to extract owner and repo
@@ -176,7 +176,7 @@ async function runCli(options) {
     
     // Find mergeable PRs
     console.log('\n🔎 Finding mergeable Dependabot PRs...');
-    const pullRequests = await findMergeablePRs(
+    const result = await findMergeablePRs(
       octokit,
       owner,
       repo,
@@ -184,7 +184,35 @@ async function runCli(options) {
       options.retryDelayMs
     );
     
+    const pullRequests = result.eligiblePRs;
+    const initialPRs = result.initialPRs;
+    
+    console.log(`Found ${initialPRs.length} open pull requests, ${pullRequests.length} eligible for auto-merging.`);
+    
     if (pullRequests.length === 0) {
+      // Show what was filtered out during basic criteria if there were initial PRs
+      if (initialPRs.length > 0) {
+        const basicCriteriaFiltered = initialPRs.filter(pr => 
+          !pullRequests.some(eligible => eligible.number === pr.number)
+        );
+        
+        if (basicCriteriaFiltered.length > 0) {
+          console.log(`\n📋 PRs Filtered Out (Basic Criteria) (${basicCriteriaFiltered.length}):`);
+          const allFilterReasons = getAllFilterReasons();
+          
+          basicCriteriaFiltered.forEach(pr => {
+            const reasons = allFilterReasons.get(pr.number);
+            const reasonText = reasons && reasons.length > 0 
+              ? reasons.map(r => r.reason).join(', ')
+              : 'Unknown reason';
+            
+            console.log(`  • PR #${pr.number}: ${pr.title}`);
+            console.log(`    🚫 Reason: ${reasonText}`);
+            console.log();
+          });
+        }
+      }
+      
       console.log('\n✅ No eligible pull requests found for automerging.');
       return;
     }
@@ -198,6 +226,31 @@ async function runCli(options) {
     console.log('📊 RESULTS');
     console.log('='.repeat(60));
     
+    // Calculate filtered PRs from basic criteria
+    const basicCriteriaFiltered = initialPRs.filter(pr => 
+      !pullRequests.some(eligible => eligible.number === pr.number)
+    );
+    
+    // Show basic criteria filtering if any PRs were filtered out
+    if (basicCriteriaFiltered.length > 0) {
+      console.log(`\n📋 PRs Filtered Out (Basic Criteria) (${basicCriteriaFiltered.length}):`);
+      const allFilterReasons = getAllFilterReasons();
+      
+      basicCriteriaFiltered.forEach(pr => {
+        const ageInDays = Math.floor((new Date() - new Date(pr.created_at)) / (1000 * 60 * 60 * 24));
+        const reasons = allFilterReasons.get(pr.number);
+        const reasonText = reasons && reasons.length > 0 
+          ? reasons.map(r => r.reason).join(', ')
+          : 'Unknown reason';
+        
+        console.log(`  • PR #${pr.number}: ${pr.title}`);
+        console.log(`    📅 Created ${ageInDays} days ago`);
+        console.log(`    🔗 ${pr.html_url || `https://github.com/${pr.base?.repo?.owner?.login || 'owner'}/${pr.base?.repo?.name || 'repo'}/pull/${pr.number}`}`);
+        console.log(`    🚫 Reason: ${reasonText}`);
+        console.log();
+      });
+    }
+
     formatPRList(pullRequests, 'All Eligible PRs Found');
     formatPRList(filteredPRs, 'PRs That Pass Filters');
     
@@ -205,14 +258,16 @@ async function runCli(options) {
       !filteredPRs.some(filtered => filtered.number === pr.number)
     );
     if (filteredOutPRs.length > 0) {
-      formatPRList(filteredOutPRs, 'PRs Filtered Out');
+      formatPRList(filteredOutPRs, 'PRs Filtered Out (User Filters)');
     }
     
     // Summary
     console.log('\n📈 Summary:');
-    console.log(`   • Total eligible PRs: ${pullRequests.length}`);
-    console.log(`   • PRs that pass filters: ${filteredPRs.length}`);
-    console.log(`   • PRs filtered out: ${filteredOutPRs.length}`);
+    console.log(`   • Total PRs found: ${initialPRs.length}`);
+    console.log(`   • PRs filtered out (basic criteria): ${basicCriteriaFiltered.length}`);
+    console.log(`   • Eligible PRs: ${pullRequests.length}`);
+    console.log(`   • PRs that pass user filters: ${filteredPRs.length}`);
+    console.log(`   • PRs filtered out (user filters): ${filteredOutPRs.length}`);
     
     // Merge or dry run
     if (filteredPRs.length === 0) {

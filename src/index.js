@@ -46,6 +46,7 @@ async function run() {
     let pullRequests = [];
     let filteredPRs = [];
     let inBlackoutPeriod = false;
+    let initialPRs = [];
     
     // Check if the action should run at the current time
     if (!shouldRunAtCurrentTime(blackoutPeriods)) {
@@ -78,13 +79,16 @@ async function run() {
       }
       
       // Find potential PRs to merge
-      pullRequests = await findMergeablePRs(
+      const result = await findMergeablePRs(
         octokit, 
         context.repo.owner, 
         context.repo.repo, 
         minimumAgeInDays,
         retryDelayMs
       );
+      
+      pullRequests = result.eligiblePRs;
+      initialPRs = result.initialPRs;
       
       if (pullRequests.length === 0) {
         core.info('No eligible pull requests found for automerging.');
@@ -140,7 +144,7 @@ async function run() {
     }
     
     // Always add workflow summary at the end with the final state
-    await addWorkflowSummary(pullRequests, filteredPRs, filterOptions);
+    await addWorkflowSummary(pullRequests, filteredPRs, filterOptions, initialPRs);
     
     // If we're in a blackout period or have no PRs to merge, we can return early
     if (inBlackoutPeriod || pullRequests.length === 0 || filteredPRs.length === 0) {

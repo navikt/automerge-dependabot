@@ -92,7 +92,7 @@ describe('addWorkflowSummary', () => {
       semverFilter: ['patch', 'minor']
     };
 
-    await addWorkflowSummary(allPRs, prsToMerge, filters);
+    await addWorkflowSummary(allPRs, prsToMerge, filters, allPRs);
 
     // Check that summary.addRaw was called with the correct PR overview information
     // We're checking that all PRs are included
@@ -215,10 +215,73 @@ describe('addWorkflowSummary', () => {
       semverFilter: ['patch', 'minor']
     };
 
-    await addWorkflowSummary(allPRs, prsToMerge, filters);
+    await addWorkflowSummary(allPRs, prsToMerge, filters, allPRs);
 
     // Check that summary.addRaw was called
     expect(mockSummary.addRaw).toHaveBeenCalled();
+
+    // Verify the summary was written
+    expect(mockSummary.write).toHaveBeenCalled();
+  });
+
+  test('should show PRs filtered during basic criteria phase', async () => {
+    // Sample PRs that were filtered out during basic criteria
+    const initialPRs = [
+      {
+        number: 5,
+        html_url: 'https://github.com/owner/repo/pull/5',
+        title: 'Bump lodash from 4.17.20 to 4.17.21'
+      },
+      {
+        number: 6,
+        html_url: 'https://github.com/owner/repo/pull/6',
+        title: 'Bump react from 17.0.1 to 18.0.0'
+      }
+    ];
+
+    // All PRs were filtered out during basic criteria (none passed)
+    const allPRs = [];
+    const prsToMerge = [];
+
+    // Mock the getFilterReasons to return basic criteria reasons
+    const { getFilterReasons } = require('../src/filters');
+    getFilterReasons.mockImplementation(prNumber => {
+      if (prNumber === 5) {
+        return [{ dependency: 'general', reason: 'PR is not mergeable' }];
+      }
+      if (prNumber === 6) {
+        return [{ dependency: 'general', reason: 'PR is too recent (less than minimum age)' }];
+      }
+      return null;
+    });
+
+    const filters = {
+      ignoredDependencies: [],
+      alwaysAllow: [],
+      ignoredVersions: [],
+      semverFilter: ['patch', 'minor']
+    };
+
+    await addWorkflowSummary(allPRs, prsToMerge, filters, initialPRs);
+
+    // Check that summary was called with content
+    expect(mockSummary.addRaw).toHaveBeenCalled();
+
+    // Get all the calls to addRaw to verify content
+    const allCalls = mockSummary.addRaw.mock.calls;
+    const summaryContent = allCalls.map(call => call[0]).join('');
+
+    // Should include section about PRs filtered during basic criteria
+    expect(summaryContent).toContain('Pull Requests Filtered Out (Basic Criteria)');
+
+    // Should show the message that PRs were found but none met basic criteria
+    expect(summaryContent).toContain('Found 2 open pull request(s), but none met the basic criteria');
+
+    // Should show the table with specific reasons
+    expect(summaryContent).toContain('[#5]');
+    expect(summaryContent).toContain('PR is not mergeable');
+    expect(summaryContent).toContain('[#6]');
+    expect(summaryContent).toContain('PR is too recent');
 
     // Verify the summary was written
     expect(mockSummary.write).toHaveBeenCalled();

@@ -72,7 +72,7 @@ function determineSemverChange(fromVersion, toVersion) {
  * @param {string} repo - Repository name
  * @param {number} minimumAgeInDays - Minimum age of PR in days
  * @param {number} retryDelayMs - Delay in milliseconds between retries
- * @returns {Array} Array of eligible pull requests
+ * @returns {Object} Object with eligiblePRs and initialPRs arrays
  */
 async function findMergeablePRs(octokit, owner, repo, minimumAgeInDays, retryDelayMs = 2000) {
   core.info('Finding eligible pull requests for auto-merging...');
@@ -96,7 +96,7 @@ async function findMergeablePRs(octokit, owner, repo, minimumAgeInDays, retryDel
   for (const pr of pullRequests) {
     // Skip if not from Dependabot
     if (pr.user.login !== 'dependabot[bot]') {
-      recordFilterReason(pr.number, pr.packageName, `Not created by Dependabot (creator: ${pr.user.login})`);
+      recordFilterReason(pr.number, 'general', `Not created by Dependabot (creator: ${pr.user.login})`);
       continue;
     }
     
@@ -104,7 +104,7 @@ async function findMergeablePRs(octokit, owner, repo, minimumAgeInDays, retryDel
     const createdAt = new Date(pr.created_at);
     if (timeUtils.isAfter(createdAt, minimumAge)) {
       const reason = `Too recent (${timeUtils.fromNow(createdAt)}, needs to be at least ${minimumAgeInDays} days old)`;
-      recordFilterReason(pr.number, pr.packageName, reason);
+      recordFilterReason(pr.number, 'general', reason);
       core.debug(`PR #${pr.number} is ${reason}`);
       continue;
     }
@@ -119,7 +119,7 @@ async function findMergeablePRs(octokit, owner, repo, minimumAgeInDays, retryDel
     }
     
     if (!prDetails.mergeable) {
-      recordFilterReason(pr.number, null, 'Not in mergeable state');
+      recordFilterReason(pr.number, 'general', 'Not in mergeable state');
       core.debug(`PR #${pr.number} is not mergeable`);
       continue;
     }
@@ -139,7 +139,7 @@ async function findMergeablePRs(octokit, owner, repo, minimumAgeInDays, retryDel
     
     if (nonDependabotCommits.length > 0) {
       const reason = 'contains commits from authors other than Dependabot';
-      recordFilterReason(pr.number, pr.packageName, `${reason} (security risk)`);
+      recordFilterReason(pr.number, 'general', `${reason} (security risk)`);
       core.warning(`PR #${pr.number} ${reason}`);
       for (const commit of nonDependabotCommits) {
         core.debug(`  Non-Dependabot commit: ${commit.sha.substring(0, 7)} from ${commit.author?.login || 'unknown'}`);
@@ -155,7 +155,7 @@ async function findMergeablePRs(octokit, owner, repo, minimumAgeInDays, retryDel
     });
     
     if (combinedStatus.state === 'failure') {
-      recordFilterReason(pr.number, pr.packageName, 'Has failing status checks');
+      recordFilterReason(pr.number, 'general', 'Has failing status checks');
       core.debug(`PR #${pr.number} has failing status checks`);
       continue;
     }
@@ -177,7 +177,7 @@ async function findMergeablePRs(octokit, owner, repo, minimumAgeInDays, retryDel
     );
     
     if (hasBlockingReviews) {
-      recordFilterReason(pr.number, pr.packageName, 'Has blocking reviews');
+      recordFilterReason(pr.number, 'general', 'Has blocking reviews');
       core.debug(`PR #${pr.number} has blocking reviews`);
       continue;
     }
@@ -207,7 +207,10 @@ async function findMergeablePRs(octokit, owner, repo, minimumAgeInDays, retryDel
   }
   
   core.info(`Found ${eligiblePRs.length} eligible pull requests for auto-merging`);
-  return eligiblePRs;
+  return {
+    eligiblePRs,
+    initialPRs: pullRequests
+  };
 }
 
 /**
