@@ -393,23 +393,23 @@ flowchart TD
     FF -->|No| GG[Skip Entire PR]
     FF -->|Yes| HH[Merge PR]
     
-    style C fill:#ffcccc
-    style E fill:#ffcccc
-    style J fill:#ffcccc
-    style L fill:#ffcccc
-    style N fill:#ffcccc
-    style P fill:#ffcccc
-    style R fill:#ffcccc
-    style U fill:#ffcccc
-    style W fill:#ffcccc
-    style Y fill:#ffcccc
-    style DD fill:#ffcccc
-    style GG fill:#ffcccc
-    style AA fill:#ccffcc
-    style CC fill:#ccffcc
-    style HH fill:#ccffcc
-    style H fill:#fff2cc
-    style I fill:#fff2cc
+    style C fill:#ffe6e6,stroke:#cc0000,stroke-width:2px,color:#000000
+    style E fill:#ffe6e6,stroke:#cc0000,stroke-width:2px,color:#000000
+    style J fill:#ffe6e6,stroke:#cc0000,stroke-width:2px,color:#000000
+    style L fill:#ffe6e6,stroke:#cc0000,stroke-width:2px,color:#000000
+    style N fill:#ffe6e6,stroke:#cc0000,stroke-width:2px,color:#000000
+    style P fill:#ffe6e6,stroke:#cc0000,stroke-width:2px,color:#000000
+    style R fill:#ffe6e6,stroke:#cc0000,stroke-width:2px,color:#000000
+    style U fill:#ffe6e6,stroke:#cc0000,stroke-width:2px,color:#000000
+    style W fill:#ffe6e6,stroke:#cc0000,stroke-width:2px,color:#000000
+    style Y fill:#ffe6e6,stroke:#cc0000,stroke-width:2px,color:#000000
+    style DD fill:#ffe6e6,stroke:#cc0000,stroke-width:2px,color:#000000
+    style GG fill:#ffe6e6,stroke:#cc0000,stroke-width:2px,color:#000000
+    style AA fill:#e6ffe6,stroke:#009900,stroke-width:2px,color:#000000
+    style CC fill:#e6ffe6,stroke:#009900,stroke-width:2px,color:#000000
+    style HH fill:#e6ffe6,stroke:#009900,stroke-width:2px,color:#000000
+    style H fill:#fff9e6,stroke:#cc8800,stroke-width:2px,color:#000000
+    style I fill:#fff9e6,stroke:#cc8800,stroke-width:2px,color:#000000
 ```
 
 This diagram shows the complete decision flow including:
