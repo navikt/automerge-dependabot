@@ -286,4 +286,82 @@ describe('addWorkflowSummary', () => {
     // Verify the summary was written
     expect(mockSummary.write).toHaveBeenCalled();
   });
+
+  test('should show PRs filtered during basic criteria phase when some PRs pass criteria', async () => {
+    // Sample PRs that match user's scenario: 7 initial PRs, 1 passes basic criteria
+    const initialPRs = [
+      { number: 10, html_url: 'https://github.com/owner/repo/pull/10', title: 'Bump lodash from 4.17.20 to 4.17.21' },
+      { number: 11, html_url: 'https://github.com/owner/repo/pull/11', title: 'Bump react from 17.0.1 to 18.0.0' },
+      { number: 12, html_url: 'https://github.com/owner/repo/pull/12', title: 'Bump axios from 0.21.1 to 0.21.4' },
+      { number: 13, html_url: 'https://github.com/owner/repo/pull/13', title: 'Bump express from 4.17.1 to 4.17.2' },
+      { number: 14, html_url: 'https://github.com/owner/repo/pull/14', title: 'Bump webpack from 5.0.0 to 5.1.0' },
+      { number: 15, html_url: 'https://github.com/owner/repo/pull/15', title: 'Bump jest from 26.0.0 to 27.0.0' },
+      { number: 16, html_url: 'https://github.com/owner/repo/pull/16', title: 'Bump eslint from 7.0.0 to 8.0.0' }
+    ];
+
+    // Only 1 PR passed basic criteria
+    const allPRs = [
+      {
+        number: 10,
+        html_url: 'https://github.com/owner/repo/pull/10',
+        dependencyInfo: { name: 'lodash', fromVersion: '4.17.20', toVersion: '4.17.21', semverChange: 'patch' }
+      }
+    ];
+
+    // And that 1 PR will be merged
+    const prsToMerge = [allPRs[0]];
+
+    // Mock the getFilterReasons to return basic criteria reasons for the filtered PRs
+    const { getFilterReasons } = require('../src/filters');
+    getFilterReasons.mockImplementation(prNumber => {
+      const basicCriteriaReasons = {
+        11: [{ dependency: 'general', reason: 'Not in mergeable state' }],
+        12: [{ dependency: 'general', reason: 'Has failing status checks' }],
+        13: [{ dependency: 'general', reason: 'Too recent (created 2 hours ago, needs to be at least 2 days old)' }],
+        14: [{ dependency: 'general', reason: 'Has blocking reviews' }],
+        15: [{ dependency: 'general', reason: 'Could not determine mergeable state after retries' }],
+        16: [{ dependency: 'general', reason: 'Contains commits from authors other than Dependabot (security risk)' }]
+      };
+      return basicCriteriaReasons[prNumber] || null;
+    });
+
+    const filters = {
+      ignoredDependencies: [],
+      alwaysAllow: [],
+      ignoredVersions: [],
+      semverFilter: ['patch', 'minor']
+    };
+
+    await addWorkflowSummary(allPRs, prsToMerge, filters, initialPRs);
+
+    // Check that summary was called with content
+    expect(mockSummary.addRaw).toHaveBeenCalled();
+
+    // Get all the calls to addRaw to verify content
+    const allCalls = mockSummary.addRaw.mock.calls;
+    const summaryContent = allCalls.map(call => call[0]).join('');
+
+    // Should include section about PRs filtered during basic criteria
+    expect(summaryContent).toContain('Pull Requests Filtered Out (Basic Criteria)');
+
+    // Should show that 1 PR passed out of 7 total
+    expect(summaryContent).toContain('Found 1 pull request(s) that met basic criteria (out of 7 total open PRs)');
+
+    // Should show the table with specific reasons for the 6 filtered PRs
+    expect(summaryContent).toContain('[#11]');
+    expect(summaryContent).toContain('Not in mergeable state');
+    expect(summaryContent).toContain('[#12]');
+    expect(summaryContent).toContain('Has failing status checks');
+    expect(summaryContent).toContain('[#13]');
+    expect(summaryContent).toContain('Too recent');
+    expect(summaryContent).toContain('[#14]');
+    expect(summaryContent).toContain('Has blocking reviews');
+    expect(summaryContent).toContain('[#15]');
+    expect(summaryContent).toContain('Could not determine mergeable state');
+    expect(summaryContent).toContain('[#16]');
+    expect(summaryContent).toContain('Contains commits from authors other than Dependabot');
+
+    // Verify the summary was written
+    expect(mockSummary.write).toHaveBeenCalled();
+  });
 });

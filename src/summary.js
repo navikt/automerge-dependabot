@@ -167,14 +167,18 @@ async function addWorkflowSummary(allPRs, prsToMerge, filters, initialPRs = []) 
     /*
     * PRs Filtered Out During Basic Criteria
     */
-    if (initialPRs.length > 0 && allPRs.length === 0) {
+    if (initialPRs.length > allPRs.length) {
       // Show PRs that were filtered out during basic criteria phase
+      const basicCriteriaFiltered = initialPRs.filter(pr => 
+        !allPRs.some(eligible => eligible.number === pr.number)
+      );
+      
       core.summary.addRaw(createSectionTitle('Pull Requests Filtered Out (Basic Criteria)') + '\n\n');
       
       // Add the table header first
       core.summary.addRaw(createTableHeader(['PR', 'Title', 'Reason for Filtering']) + '\n');
       
-      for (const pr of initialPRs) {
+      for (const pr of basicCriteriaFiltered) {
         // Get the filter data for this PR
         const filterData = getFilterReasons(pr.number);
         
