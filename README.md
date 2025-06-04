@@ -352,25 +352,75 @@ Some dependencies don't follow standard semantic versioning, using commit hashes
 
 When using multiple dependency PRs (where Dependabot updates several packages at once), the rules apply to each dependency individually. If any dependency doesn't meet your criteria, the entire PR will be skipped.
 
-## Non-semver Decision Flow
+## Decision Flow
 
-When a Dependabot PR is detected, the version changes are processed using this decision flow:
+When a Dependabot PR is detected, it goes through this comprehensive filtering and validation process:
 
 ```mermaid
 flowchart TD
-    A[Dependabot PR] --> B{In ignored-packages?}
-    B -->|Yes| C[Skip Package]
-    B -->|No| D{In ignored-versions?}
-    D -->|Yes| C
-    D -->|No| E{In always-allow?}
-    E -->|Yes| F[Merge Package]
-    E -->|No| G[Determine semver change level]
-    G --> H{Level in the semver-filter?}
-    H -->|Yes| F
-    H -->|No| C
+    A[Dependabot PR Found] --> B{Is PR author dependabot[bot]?}
+    B -->|No| C[Skip PR - Security Check Failed]
+    B -->|Yes| D{Is PR old enough?<br/>minimum-age-of-pr}
+    D -->|No| E[Skip PR - Too Recent]
+    D -->|Yes| F[Check PR Mergeability]
+    F --> G{Is mergeable state null?}
+    G -->|Yes| H[Wait retry-delay-ms]
+    H --> I{Retry < 3 attempts?}
+    I -->|Yes| F
+    I -->|No| J[Skip PR - Mergeability Unknown]
+    G -->|No| K{Is PR mergeable?}
+    K -->|No| L[Skip PR - Not Mergeable]
+    K -->|Yes| M{All commits from dependabot[bot]?}
+    M -->|No| N[Skip PR - Security Risk]
+    M -->|Yes| O{Status checks passing?}
+    O -->|No| P[Skip PR - Failing Checks]
+    O -->|Yes| Q{Any blocking reviews?}
+    Q -->|Yes| R[Skip PR - Blocked Reviews]
+    Q -->|No| S[Extract Dependency Info]
+    S --> T{Is dependency info complete?<br/>name, toVersion, semverChange}
+    T -->|No| U[Skip Dependency - Missing Info]
+    T -->|Yes| V{Is dependency in ignored-dependencies?}
+    V -->|Yes| W[Skip Dependency - In Ignored List]
+    V -->|No| X{Is version in ignored-versions?<br/>name@version or name@*}
+    X -->|Yes| Y[Skip Dependency - Version Ignored]
+    X -->|No| Z{Does dependency match always-allow pattern?<br/>*, exact match, name:string, prefix}
+    Z -->|Yes| AA[Merge Dependency - Always Allowed]
+    Z -->|No| BB{Is semver change level in semver-filter?<br/>major, minor, patch}
+    BB -->|Yes| CC[Merge Dependency - Semver Allowed]
+    BB -->|No| DD[Skip Dependency - Semver Filtered]
+    
+    EE[Multi-dependency PR] --> FF{Do ALL dependencies pass filters?}
+    FF -->|No| GG[Skip Entire PR]
+    FF -->|Yes| HH[Merge PR]
+    
+    style C fill:#ffcccc
+    style E fill:#ffcccc
+    style J fill:#ffcccc
+    style L fill:#ffcccc
+    style N fill:#ffcccc
+    style P fill:#ffcccc
+    style R fill:#ffcccc
+    style U fill:#ffcccc
+    style W fill:#ffcccc
+    style Y fill:#ffcccc
+    style DD fill:#ffcccc
+    style GG fill:#ffcccc
+    style AA fill:#ccffcc
+    style CC fill:#ccffcc
+    style HH fill:#ccffcc
+    style H fill:#fff2cc
+    style I fill:#fff2cc
 ```
 
-This diagram shows how the action determines whether to merge a Dependabot PR based on the package name, version, and semver change level.
+This diagram shows the complete decision flow including:
+- **Initial Security Validation**: Ensures PR is from Dependabot
+- **Age Check**: Verifies PR meets minimum age requirement
+- **Retry Logic**: Up to 3 attempts to determine PR mergeability with configurable delays
+- **Comprehensive PR Validation**: Checks mergeability, commit authors, status checks, and reviews
+- **Dependency Filtering**: Applies ignored dependencies, ignored versions, always-allow patterns, and semver filtering
+- **Multi-dependency Handling**: ALL dependencies must pass filters for the entire PR to be merged
+
+The yellow-highlighted nodes show the retry mechanism that handles GitHub API rate limits and temporary issues when checking PR mergeability.
 
 ## Semantic Version Handling
 
