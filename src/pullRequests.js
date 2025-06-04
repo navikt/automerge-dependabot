@@ -71,9 +71,10 @@ function determineSemverChange(fromVersion, toVersion) {
  * @param {string} owner - Repository owner
  * @param {string} repo - Repository name
  * @param {number} minimumAgeInDays - Minimum age of PR in days
+ * @param {number} retryDelayMs - Delay in milliseconds between retries
  * @returns {Array} Array of eligible pull requests
  */
-async function findMergeablePRs(octokit, owner, repo, minimumAgeInDays) {
+async function findMergeablePRs(octokit, owner, repo, minimumAgeInDays, retryDelayMs = 2000) {
   core.info('Finding eligible pull requests for auto-merging...');
   
   // Get open pull requests created by Dependabot
@@ -108,12 +109,14 @@ async function findMergeablePRs(octokit, owner, repo, minimumAgeInDays) {
       continue;
     }
     
-    // Check if PR can be merged
-    const { data: prDetails } = await octokit.rest.pulls.get({
-      owner,
-      repo,
-      pull_number: pr.number
-    });
+    // Check if PR can be merged with retry logic for null mergeable state
+    const prDetails = await checkPRMergeability(octokit, owner, repo, pr.number, retryDelayMs);
+    
+    if (!prDetails) {
+      recordFilterReason(pr.number, null, 'Could not determine mergeable state after retries');
+      core.debug(`PR #${pr.number} mergeable state could not be determined`);
+      continue;
+    }
     
     if (!prDetails.mergeable) {
       recordFilterReason(pr.number, null, 'Not in mergeable state');
@@ -205,6 +208,56 @@ async function findMergeablePRs(octokit, owner, repo, minimumAgeInDays) {
   
   core.info(`Found ${eligiblePRs.length} eligible pull requests for auto-merging`);
   return eligiblePRs;
+}
+
+/**
+ * Check PR mergeability with retry logic for null mergeable state
+ * Reason: https://docs.github.com/en/rest/guides/using-the-rest-api-to-interact-with-your-git-database?apiVersion=2022-11-28#checking-mergeability-of-pull-requests
+ * 
+ * @param {Object} octokit - GitHub API client
+ * @param {string} owner - Repository owner
+ * @param {string} repo - Repository name
+ * @param {number} pullNumber - Pull request number
+ * @param {number} retryDelayMs - Delay in milliseconds between retries
+ * @returns {Object|null} PR details with mergeable state, or null if could not be determined
+ */
+async function checkPRMergeability(octokit, owner, repo, pullNumber, retryDelayMs = 2000) {
+  const maxRetries = 3;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const { data: prDetails } = await octokit.rest.pulls.get({
+        owner,
+        repo,
+        pull_number: pullNumber
+      });
+      
+      // If mergeable is not null, we have a definitive answer
+      if (prDetails.mergeable !== null) {
+        core.debug(`PR #${pullNumber} mergeable state determined: ${prDetails.mergeable} (attempt ${attempt})`);
+        return prDetails;
+      }
+      
+      // If mergeable is null and this isn't our last attempt, wait and retry
+      if (attempt < maxRetries) {
+        core.debug(`PR #${pullNumber} mergeable state is null (attempt ${attempt}/${maxRetries}), retrying in ${retryDelayMs}ms...`);
+        await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+      } else {
+        core.warning(`PR #${pullNumber} mergeable state is still null after ${maxRetries} attempts`);
+        return null;
+      }
+      
+    } catch (error) {
+      core.warning(`Error checking PR #${pullNumber} mergeability (attempt ${attempt}): ${error.message}`);
+      if (attempt === maxRetries) {
+        return null;
+      }
+      // Wait before retrying on error
+      await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+    }
+  }
+  
+  return null;
 }
 
 /**
@@ -351,5 +404,6 @@ module.exports = {
   findMergeablePRs,
   extractDependencyInfo,
   extractMultipleDependencyInfo,
-  determineSemverChange
+  determineSemverChange,
+  checkPRMergeability
 };

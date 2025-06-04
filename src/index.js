@@ -32,6 +32,7 @@ async function run() {
     const ignoredVersions = core.getInput('ignored-versions');
     const semverFilter = core.getInput('semver-filter');
     const mergeMethod = core.getInput('merge-method');
+    const retryDelayMs = parseInt(core.getInput('retry-delay-ms'), 10) || 2000;
     
     // Prepare filter options - we'll use this regardless of whether we're in a blackout period
     const filterOptions = {
@@ -81,7 +82,8 @@ async function run() {
         octokit, 
         context.repo.owner, 
         context.repo.repo, 
-        minimumAgeInDays
+        minimumAgeInDays,
+        retryDelayMs
       );
       
       if (pullRequests.length === 0) {

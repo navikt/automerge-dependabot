@@ -171,7 +171,7 @@ async function runCli(options) {
       owner,
       repo,
       options.minimumAge,
-      mockCore
+      options.retryDelayMs
     );
     
     if (pullRequests.length === 0) {
@@ -264,12 +264,14 @@ function main() {
     .option('--ignored-versions <versions>', 'Comma-separated list of specific versions to ignore')
     .option('--semver-filter <levels>', 'Semver levels to allow (major,minor,patch,unknown)', 'patch,minor')
     .option('--merge-method <method>', 'Merge method (merge, squash, rebase)', 'merge')
+    .option('--retry-delay-ms <ms>', 'Delay in milliseconds between retries when checking PR mergeability', '2000')
     .option('--no-dry-run', 'Actually merge PRs (default is dry run)')
     .option('-v, --verbose', 'Enable verbose logging')
     .action(async (url, options) => {
       // Convert string options to appropriate types
       options.url = url;
       options.minimumAge = parseInt(options.minimumAge, 10);
+      options.retryDelayMs = parseInt(options.retryDelayMs, 10) || 2000;
       options.dryRun = !options.noDryRun; // Commander converts --no-dry-run to noDryRun: true
       
       await runCli(options);

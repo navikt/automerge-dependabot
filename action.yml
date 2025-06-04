@@ -36,6 +36,10 @@ inputs:
     description: The merge method to use (merge, squash, rebase). Note that only 'merge' method is supported with GitHub merge queues.
     required: false
     default: 'merge'
+  retry-delay-ms:
+    description: Delay in milliseconds between retries when checking PR mergeability. Lower values speed up tests, higher values provide more robustness.
+    required: false
+    default: '2000'
 
 runs:
   using: node20

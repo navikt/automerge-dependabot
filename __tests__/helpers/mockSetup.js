@@ -66,7 +66,8 @@ function setupDefaultInputs(customInputs = {}) {
     "always-allow": "",
     "ignored-versions": "",
     "semver-filter": "patch,minor",
-    "merge-method": "merge"
+    "merge-method": "merge",
+    "retry-delay-ms": "100"
   };
 
   const inputs = { ...defaultInputs, ...customInputs };

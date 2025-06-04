@@ -90,6 +90,12 @@ Possible values: `merge`, `squash`, `rebase`.
 
 Note: If a repository uses GitHub branch protection with merge queues, only the `merge` method is supported. The action will warn you if you're trying to use `squash` or `rebase` with a repository that has merge queues enabled.
 
+### `retry-delay-ms`
+
+The delay in milliseconds between retries when checking pull request mergeability. Default: `2000`.
+
+This setting controls how long the action waits between attempts when verifying if a pull request can be merged. A higher value provides more robust handling of GitHub API rate limits and temporary issues, while a lower value makes the action complete faster. The default value of 2000ms (2 seconds) is recommended for production use to ensure reliable operation with the GitHub API.
+
 ## CLI Usage
 
 The tool can also be used as a command-line interface for testing and one-off analysis of repositories.
@@ -127,6 +133,7 @@ Options:
   --ignored-versions <versions>  Comma-separated list of specific versions to ignore
   --semver-filter <levels>       Semver levels to allow (major,minor,patch,unknown) (default: "patch,minor")
   --merge-method <method>        Merge method (merge, squash, rebase) (default: "merge")
+  --retry-delay-ms <ms>          Delay between retries when checking PR mergeability (default: "2000")
   --no-dry-run                   Actually merge PRs (default is dry run)
   -v, --verbose                  Enable verbose logging
   -h, --help                     Display help for command
