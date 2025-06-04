@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "ncc build src/index.js -o dist --minify",
-    "test": "jest",
+    "test": "jest --coverage",
     "lint": "eslint src/**/*.js",
     "prepare": "husky"
   },

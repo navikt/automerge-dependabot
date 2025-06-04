@@ -39,6 +39,13 @@ Formats supported:
 - Time ranges: `9:00-17:00`
 - Date ranges: `Dec 24-Jan 5`
 
+Examples:
+- `Sat,Sun` - Don't run on weekends
+- `Dec 24-Jan 5` - Don't run during winter holidays
+- `9:00-10:00` - Don't run during the daily standup
+- `Mon 9:00-10:00,Wed 13:00-14:00` - Don't run during regular meetings
+- `Sat,Sun,Dec 24-Jan 5,9:00-10:00` - Combination of different formats
+
 ### `ignored-dependencies`
 
 Comma-separated list of dependencies to ignore (will not be automerged). Example: `lodash,react,express`.
@@ -99,7 +106,7 @@ jobs:
           minimum-age-of-pr: '3'
 ```
 
-Advanced example with all options and github app token::
+Advanced example with all options and github app token:
 
 ```yaml
 name: Automerge Dependabot PRs
@@ -157,10 +164,13 @@ The action generates a detailed workflow summary that includes:
 - Applied filter settings
 - Summary of eligible PRs found and how many will be merged
 - Detailed tables showing:
-  - PRs that will be merged, with dependency information and change level
-  - PRs that were filtered out, with reasons why they didn't pass the filters
+  - PRs that will be merged, with dependency information and version changes
+  - PRs that were filtered out, with specific reasons why they didn't pass the filters (e.g., "Dependency X is in ignored list")
+  - General status information such as whether PRs are in a mergeable state or have failing checks
 
-This helps maintain transparency and makes it easy to audit which dependencies are being automatically updated and why certain PRs might not be merged.
+The summary is automatically written to the GitHub Actions workflow summary page and will be visible after each run. This helps maintain transparency and makes it easy to audit which dependencies are being automatically updated and why certain PRs might not be merged.
+
+If the action runs during a blackout period, this will be clearly indicated in the summary.
 
 ## Handling Non-Semver Dependencies
 

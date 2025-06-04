@@ -55,6 +55,27 @@ async function run() {
       const octokit = github.getOctokit(token);
       const context = github.context;
       
+      // Check if running from default branch for security
+      try {
+        const { data: repo } = await octokit.rest.repos.get({
+          owner: context.repo.owner,
+          repo: context.repo.repo
+        });
+        
+        const currentRef = context.ref;
+        const defaultBranch = `refs/heads/${repo.default_branch}`;
+        
+        if (currentRef !== defaultBranch) {
+          core.warning(`Action is not running from the default branch (${repo.default_branch}). Current ref: ${currentRef}. Skipping execution for security reasons.`);
+          return;
+        }
+        
+        core.info(`Action is running from the default branch (${repo.default_branch}). Proceeding with execution.`);
+      } catch (error) {
+        core.warning(`Failed to verify default branch: ${error.message}. Skipping execution for security reasons.`);
+        return;
+      }
+      
       // Find potential PRs to merge
       pullRequests = await findMergeablePRs(
         octokit, 

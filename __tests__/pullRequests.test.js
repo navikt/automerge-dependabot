@@ -1,11 +1,13 @@
 const { findMergeablePRs, extractMultipleDependencyInfo } = require('../src/pullRequests');
 const core = require('@actions/core');
+const { setupTestEnvironment, createMockPR } = require('./helpers/mockSetup');
 
 // Mock dependencies
 jest.mock('@actions/core');
 
 describe('PullRequests Module', () => {
   let originalDate;
+  let mockOctokit;
   
   beforeEach(() => {
     jest.clearAllMocks();
@@ -15,6 +17,10 @@ describe('PullRequests Module', () => {
     
     // Store the original Date
     originalDate = global.Date;
+    
+    // Set up basic test environment
+    const result = setupTestEnvironment({ mockResponses: false });
+    mockOctokit = result.mockOctokit;
   });
   
   afterEach(() => {
@@ -23,54 +29,34 @@ describe('PullRequests Module', () => {
   });
   
   test('should filter PRs based on criteria', async () => {
-    // Mock GitHub API client and responses
-    const mockOctokit = {
-      rest: {
-        pulls: {
-          list: jest.fn().mockResolvedValue({
-            data: [
-              {
-                number: 1,
-                title: 'Bump lodash from 4.17.20 to 4.17.21',
-                user: { login: 'dependabot[bot]' },
-                head: { ref: 'dependabot/npm_and_yarn/lodash-4.17.21', sha: 'abc123' },
-                created_at: '2025-05-10T10:00:00Z'
-              },
-              {
-                number: 2,
-                title: 'Some other PR',
-                user: { login: 'user1' },
-                head: { ref: 'feature/something', sha: 'def456' },
-                created_at: '2025-05-12T10:00:00Z'
-              }
-            ]
-          }),
-          get: jest.fn().mockResolvedValue({
-            data: {
-              number: 1,
-              mergeable: true
-            }
-          }),
-          listCommits: jest.fn().mockResolvedValue({
-            data: [
-              {
-                sha: 'abc123def456',
-                author: { login: 'dependabot[bot]' },
-                committer: { login: 'dependabot[bot]' }
-              }
-            ]
-          }),
-          listReviews: jest.fn().mockResolvedValue({
-            data: []
-          })
-        },
-        repos: {
-          getCombinedStatusForRef: jest.fn().mockResolvedValue({
-            data: { state: 'success' }
-          })
-        }
-      }
-    };
+    // Set up mock responses
+    mockOctokit.rest.pulls.list.mockResolvedValue({
+      data: [
+        createMockPR({
+          title: 'Bump lodash from 4.17.20 to 4.17.21',
+          head: { ref: 'dependabot/npm_and_yarn/lodash-4.17.21', sha: 'abc123' },
+          created_at: '2025-05-10T10:00:00Z'
+        }),
+        createMockPR({
+          number: 2,
+          title: 'Some other PR',
+          user: { login: 'user1' },
+          head: { ref: 'feature/something', sha: 'def456' },
+          created_at: '2025-05-12T10:00:00Z'
+        })
+      ]
+    });
+
+    mockOctokit.rest.pulls.get.mockResolvedValue({
+      data: { number: 1, mergeable: true }
+    });
+
+    mockOctokit.rest.pulls.listCommits.mockResolvedValue({
+      data: [{ sha: 'abc123def456', author: { login: 'dependabot[bot]' }, committer: { login: 'dependabot[bot]' } }]
+    });
+
+    mockOctokit.rest.pulls.listReviews.mockResolvedValue({ data: [] });
+    mockOctokit.rest.repos.getCombinedStatusForRef.mockResolvedValue({ data: { state: 'success' } });
     
     // Mock current date to ensure deterministic age comparisons
     const mockDate = new Date('2025-05-12T00:00:00Z');
@@ -91,24 +77,16 @@ describe('PullRequests Module', () => {
   });
   
   test('should filter out PRs that are not from Dependabot', async () => {
-    // Mock GitHub API client and responses
-    const mockOctokit = {
-      rest: {
-        pulls: {
-          list: jest.fn().mockResolvedValue({
-            data: [
-              {
-                number: 1,
-                title: 'Bump lodash from 4.17.20 to 4.17.21',
-                user: { login: 'user1' }, // Not dependabot
-                head: { ref: 'dependabot/npm_and_yarn/lodash-4.17.21', sha: 'abc123' },
-                created_at: '2025-05-10T10:00:00Z'
-              }
-            ]
-          })
-        }
-      }
-    };
+    mockOctokit.rest.pulls.list.mockResolvedValue({
+      data: [
+        createMockPR({
+          title: 'Bump lodash from 4.17.20 to 4.17.21',
+          user: { login: 'user1' }, // Not dependabot
+          head: { ref: 'dependabot/npm_and_yarn/lodash-4.17.21', sha: 'abc123' },
+          created_at: '2025-05-10T10:00:00Z'
+        })
+      ]
+    });
     
     const result = await findMergeablePRs(mockOctokit, 'owner', 'repo', 0);
     
@@ -116,52 +94,29 @@ describe('PullRequests Module', () => {
   });
   
   test('should filter out PRs with non-Dependabot commits', async () => {
-    // Mock GitHub API client and responses
-    const mockOctokit = {
-      rest: {
-        pulls: {
-          list: jest.fn().mockResolvedValue({
-            data: [
-              {
-                number: 1,
-                title: 'Bump lodash from 4.17.20 to 4.17.21',
-                user: { login: 'dependabot[bot]' },
-                head: { ref: 'dependabot/npm_and_yarn/lodash-4.17.21', sha: 'abc123' },
-                created_at: '2025-05-10T10:00:00Z'
-              }
-            ]
-          }),
-          get: jest.fn().mockResolvedValue({
-            data: {
-              number: 1,
-              mergeable: true
-            }
-          }),
-          listCommits: jest.fn().mockResolvedValue({
-            data: [
-              {
-                sha: 'abc123def456',
-                author: { login: 'dependabot[bot]' },
-                committer: { login: 'dependabot[bot]' }
-              },
-              {
-                sha: 'def456abc789',
-                author: { login: 'malicious-user' }, // Not dependabot
-                committer: { login: 'malicious-user' }
-              }
-            ]
-          }),
-          listReviews: jest.fn().mockResolvedValue({
-            data: []
-          })
-        },
-        repos: {
-          getCombinedStatusForRef: jest.fn().mockResolvedValue({
-            data: { state: 'success' }
-          })
-        }
-      }
-    };
+    mockOctokit.rest.pulls.list.mockResolvedValue({
+      data: [
+        createMockPR({
+          title: 'Bump lodash from 4.17.20 to 4.17.21',
+          head: { ref: 'dependabot/npm_and_yarn/lodash-4.17.21', sha: 'abc123' },
+          created_at: '2025-05-10T10:00:00Z'
+        })
+      ]
+    });
+
+    mockOctokit.rest.pulls.get.mockResolvedValue({
+      data: { number: 1, mergeable: true }
+    });
+
+    mockOctokit.rest.pulls.listCommits.mockResolvedValue({
+      data: [
+        { sha: 'abc123def456', author: { login: 'dependabot[bot]' }, committer: { login: 'dependabot[bot]' } },
+        { sha: 'def456abc789', author: { login: 'malicious-user' }, committer: { login: 'malicious-user' } }
+      ]
+    });
+
+    mockOctokit.rest.pulls.listReviews.mockResolvedValue({ data: [] });
+    mockOctokit.rest.repos.getCombinedStatusForRef.mockResolvedValue({ data: { state: 'success' } });
     
     // Use a date that ensures PRs are old enough
     const mockDate = new Date('2025-05-15T00:00:00Z');
@@ -181,46 +136,26 @@ describe('PullRequests Module', () => {
   });
   
   test('should filter out PRs with missing commit author information', async () => {
-    // Mock GitHub API client and responses
-    const mockOctokit = {
-      rest: {
-        pulls: {
-          list: jest.fn().mockResolvedValue({
-            data: [
-              {
-                number: 1,
-                title: 'Bump lodash from 4.17.20 to 4.17.21',
-                user: { login: 'dependabot[bot]' },
-                head: { ref: 'dependabot/npm_and_yarn/lodash-4.17.21', sha: 'abc123' },
-                created_at: '2025-05-10T10:00:00Z'
-              }
-            ]
-          }),
-          get: jest.fn().mockResolvedValue({
-            data: {
-              number: 1,
-              mergeable: true
-            }
-          }),
-          listCommits: jest.fn().mockResolvedValue({
-            data: [
-              {
-                sha: 'abc123def456',
-                // Missing author and committer information
-              }
-            ]
-          }),
-          listReviews: jest.fn().mockResolvedValue({
-            data: []
-          })
-        },
-        repos: {
-          getCombinedStatusForRef: jest.fn().mockResolvedValue({
-            data: { state: 'success' }
-          })
-        }
-      }
-    };
+    mockOctokit.rest.pulls.list.mockResolvedValue({
+      data: [
+        createMockPR({
+          title: 'Bump lodash from 4.17.20 to 4.17.21',
+          head: { ref: 'dependabot/npm_and_yarn/lodash-4.17.21', sha: 'abc123' },
+          created_at: '2025-05-10T10:00:00Z'
+        })
+      ]
+    });
+
+    mockOctokit.rest.pulls.get.mockResolvedValue({
+      data: { number: 1, mergeable: true }
+    });
+
+    mockOctokit.rest.pulls.listCommits.mockResolvedValue({
+      data: [{ sha: 'abc123def456' }] // Missing author and committer information
+    });
+
+    mockOctokit.rest.pulls.listReviews.mockResolvedValue({ data: [] });
+    mockOctokit.rest.repos.getCombinedStatusForRef.mockResolvedValue({ data: { state: 'success' } });
     
     // Use a date that ensures PRs are old enough
     const mockDate = new Date('2025-05-15T00:00:00Z');
@@ -240,47 +175,26 @@ describe('PullRequests Module', () => {
   });
   
   test('should filter out PRs that are too recent', async () => {
-    // Mock GitHub API client and responses
-    const mockOctokit = {
-      rest: {
-        pulls: {
-          list: jest.fn().mockResolvedValue({
-            data: [
-              {
-                number: 1,
-                title: 'Bump lodash from 4.17.20 to 4.17.21',
-                user: { login: 'dependabot[bot]' },
-                head: { ref: 'dependabot/npm_and_yarn/lodash-4.17.21', sha: 'abc123' },
-                created_at: '2025-05-11T10:00:00Z' // Just 1 day old, but test requires 2
-              }
-            ]
-          }),
-          get: jest.fn().mockResolvedValue({
-            data: {
-              number: 1,
-              mergeable: true
-            }
-          }),
-          listCommits: jest.fn().mockResolvedValue({
-            data: [
-              {
-                sha: 'abc123def456',
-                author: { login: 'dependabot[bot]' },
-                committer: { login: 'dependabot[bot]' }
-              }
-            ]
-          }),
-          listReviews: jest.fn().mockResolvedValue({
-            data: []
-          })
-        },
-        repos: {
-          getCombinedStatusForRef: jest.fn().mockResolvedValue({
-            data: { state: 'success' }
-          })
-        }
-      }
-    };
+    mockOctokit.rest.pulls.list.mockResolvedValue({
+      data: [
+        createMockPR({
+          title: 'Bump lodash from 4.17.20 to 4.17.21',
+          head: { ref: 'dependabot/npm_and_yarn/lodash-4.17.21', sha: 'abc123' },
+          created_at: '2025-05-11T10:00:00Z' // Just 1 day old, but test requires 2
+        })
+      ]
+    });
+
+    mockOctokit.rest.pulls.get.mockResolvedValue({
+      data: { number: 1, mergeable: true }
+    });
+
+    mockOctokit.rest.pulls.listCommits.mockResolvedValue({
+      data: [{ sha: 'abc123def456', author: { login: 'dependabot[bot]' }, committer: { login: 'dependabot[bot]' } }]
+    });
+
+    mockOctokit.rest.pulls.listReviews.mockResolvedValue({ data: [] });
+    mockOctokit.rest.repos.getCombinedStatusForRef.mockResolvedValue({ data: { state: 'success' } });
     
     // Set a current date that makes the PR too recent (only 1 day old)
     const mockDate = new Date('2025-05-12T10:00:00Z');
@@ -299,47 +213,26 @@ describe('PullRequests Module', () => {
   });
   
   test('should filter out PRs that are not mergeable', async () => {
-    // Mock GitHub API client and responses
-    const mockOctokit = {
-      rest: {
-        pulls: {
-          list: jest.fn().mockResolvedValue({
-            data: [
-              {
-                number: 1,
-                title: 'Bump lodash from 4.17.20 to 4.17.21',
-                user: { login: 'dependabot[bot]' },
-                head: { ref: 'dependabot/npm_and_yarn/lodash-4.17.21', sha: 'abc123' },
-                created_at: '2025-05-10T10:00:00Z'
-              }
-            ]
-          }),
-          get: jest.fn().mockResolvedValue({
-            data: {
-              number: 1,
-              mergeable: false // Not mergeable
-            }
-          }),
-          listCommits: jest.fn().mockResolvedValue({
-            data: [
-              {
-                sha: 'abc123def456',
-                author: { login: 'dependabot[bot]' },
-                committer: { login: 'dependabot[bot]' }
-              }
-            ]
-          }),
-          listReviews: jest.fn().mockResolvedValue({
-            data: []
-          })
-        },
-        repos: {
-          getCombinedStatusForRef: jest.fn().mockResolvedValue({
-            data: { state: 'success' }
-          })
-        }
-      }
-    };
+    mockOctokit.rest.pulls.list.mockResolvedValue({
+      data: [
+        createMockPR({
+          title: 'Bump lodash from 4.17.20 to 4.17.21',
+          head: { ref: 'dependabot/npm_and_yarn/lodash-4.17.21', sha: 'abc123' },
+          created_at: '2025-05-10T10:00:00Z'
+        })
+      ]
+    });
+
+    mockOctokit.rest.pulls.get.mockResolvedValue({
+      data: { number: 1, mergeable: false } // Not mergeable
+    });
+
+    mockOctokit.rest.pulls.listCommits.mockResolvedValue({
+      data: [{ sha: 'abc123def456', author: { login: 'dependabot[bot]' }, committer: { login: 'dependabot[bot]' } }]
+    });
+
+    mockOctokit.rest.pulls.listReviews.mockResolvedValue({ data: [] });
+    mockOctokit.rest.repos.getCombinedStatusForRef.mockResolvedValue({ data: { state: 'success' } });
     
     // Use a date that ensures PRs are old enough
     const mockDate = new Date('2025-05-15T00:00:00Z');
@@ -358,47 +251,28 @@ describe('PullRequests Module', () => {
   });
   
   test('should filter out PRs with failing status checks', async () => {
-    // Mock GitHub API client and responses
-    const mockOctokit = {
-      rest: {
-        pulls: {
-          list: jest.fn().mockResolvedValue({
-            data: [
-              {
-                number: 1,
-                title: 'Bump lodash from 4.17.20 to 4.17.21',
-                user: { login: 'dependabot[bot]' },
-                head: { ref: 'dependabot/npm_and_yarn/lodash-4.17.21', sha: 'abc123' },
-                created_at: '2025-05-10T10:00:00Z'
-              }
-            ]
-          }),
-          get: jest.fn().mockResolvedValue({
-            data: {
-              number: 1,
-              mergeable: true
-            }
-          }),
-          listCommits: jest.fn().mockResolvedValue({
-            data: [
-              {
-                sha: 'abc123def456',
-                author: { login: 'dependabot[bot]' },
-                committer: { login: 'dependabot[bot]' }
-              }
-            ]
-          }),
-          listReviews: jest.fn().mockResolvedValue({
-            data: []
-          })
-        },
-        repos: {
-          getCombinedStatusForRef: jest.fn().mockResolvedValue({
-            data: { state: 'failure' } // Failing checks
-          })
-        }
-      }
-    };
+    mockOctokit.rest.pulls.list.mockResolvedValue({
+      data: [
+        createMockPR({
+          title: 'Bump lodash from 4.17.20 to 4.17.21',
+          head: { ref: 'dependabot/npm_and_yarn/lodash-4.17.21', sha: 'abc123' },
+          created_at: '2025-05-10T10:00:00Z'
+        })
+      ]
+    });
+
+    mockOctokit.rest.pulls.get.mockResolvedValue({
+      data: { number: 1, mergeable: true }
+    });
+
+    mockOctokit.rest.pulls.listCommits.mockResolvedValue({
+      data: [{ sha: 'abc123def456', author: { login: 'dependabot[bot]' }, committer: { login: 'dependabot[bot]' } }]
+    });
+
+    mockOctokit.rest.pulls.listReviews.mockResolvedValue({ data: [] });
+    mockOctokit.rest.repos.getCombinedStatusForRef.mockResolvedValue({
+      data: { state: 'failure' } // Failing checks
+    });
     
     // Use a date that ensures PRs are old enough
     const mockDate = new Date('2025-05-15T00:00:00Z');
@@ -417,53 +291,35 @@ describe('PullRequests Module', () => {
   });
   
   test('should filter out PRs with blocking reviews', async () => {
-    // Mock GitHub API client and responses
-    const mockOctokit = {
-      rest: {
-        pulls: {
-          list: jest.fn().mockResolvedValue({
-            data: [
-              {
-                number: 1,
-                title: 'Bump lodash from 4.17.20 to 4.17.21',
-                user: { login: 'dependabot[bot]' },
-                head: { ref: 'dependabot/npm_and_yarn/lodash-4.17.21', sha: 'abc123' },
-                created_at: '2025-05-10T10:00:00Z'
-              }
-            ]
-          }),
-          get: jest.fn().mockResolvedValue({
-            data: {
-              number: 1,
-              mergeable: true
-            }
-          }),
-          listCommits: jest.fn().mockResolvedValue({
-            data: [
-              {
-                sha: 'abc123def456',
-                author: { login: 'dependabot[bot]' },
-                committer: { login: 'dependabot[bot]' }
-              }
-            ]
-          }),
-          listReviews: jest.fn().mockResolvedValue({
-            data: [
-              {
-                user: { id: 123 },
-                state: 'REQUEST_CHANGES',
-                submitted_at: '2025-05-11T00:00:00Z'
-              }
-            ]
-          })
-        },
-        repos: {
-          getCombinedStatusForRef: jest.fn().mockResolvedValue({
-            data: { state: 'success' }
-          })
+    mockOctokit.rest.pulls.list.mockResolvedValue({
+      data: [
+        createMockPR({
+          title: 'Bump lodash from 4.17.20 to 4.17.21',
+          head: { ref: 'dependabot/npm_and_yarn/lodash-4.17.21', sha: 'abc123' },
+          created_at: '2025-05-10T10:00:00Z'
+        })
+      ]
+    });
+
+    mockOctokit.rest.pulls.get.mockResolvedValue({
+      data: { number: 1, mergeable: true }
+    });
+
+    mockOctokit.rest.pulls.listCommits.mockResolvedValue({
+      data: [{ sha: 'abc123def456', author: { login: 'dependabot[bot]' }, committer: { login: 'dependabot[bot]' } }]
+    });
+
+    mockOctokit.rest.pulls.listReviews.mockResolvedValue({
+      data: [
+        {
+          user: { id: 123 },
+          state: 'REQUEST_CHANGES',
+          submitted_at: '2025-05-11T00:00:00Z'
         }
-      }
-    };
+      ]
+    });
+
+    mockOctokit.rest.repos.getCombinedStatusForRef.mockResolvedValue({ data: { state: 'success' } });
     
     // Use a date that ensures PRs are old enough
     const mockDate = new Date('2025-05-15T00:00:00Z');

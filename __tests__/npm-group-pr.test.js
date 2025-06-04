@@ -11,35 +11,11 @@ jest.mock('@actions/github');
 
 // Now import modules
 const core = require('@actions/core');
-const github = require('@actions/github');
 const { run } = require('../src/index');
+const { setupTestEnvironment, createMockPR } = require('./helpers/mockSetup');
 
 describe('npm group dependency updates', () => {
-  const mockOctokit = {
-    rest: {
-      pulls: {
-        merge: jest.fn(),
-        list: jest.fn(),
-        get: jest.fn(),
-        listCommits: jest.fn(),
-        listReviews: jest.fn()
-      },
-      repos: {
-        getCombinedStatusForRef: jest.fn()
-      }
-    }
-  };
-
-  // Set up the GitHub context
-  github.context = {
-    repo: {
-      owner: 'owner',
-      repo: 'repo'
-    }
-  };
-
-  // Set up the GitHub getOctokit function
-  github.getOctokit = jest.fn().mockReturnValue(mockOctokit);
+  let mockOctokit;
 
   // PR group body template with proper markdown table format
   const prBody = `Bumps the npm group with 7 updates:
@@ -55,64 +31,22 @@ describe('npm group dependency updates', () => {
 | [web-vitals](https://github.com/GoogleChrome/web-vitals) | \`2.1.4\` | \`5.0.1\` |`;
 
   beforeEach(() => {
-    // Clear all mocks before each test
-    jest.clearAllMocks();
-    
-    // Set up core info and warning mocks
-    core.info = jest.fn();
-    core.warning = jest.fn();
-    core.debug = jest.fn();
-    
-    // Set up core.summary mock to avoid GitHub Actions summary errors
-    core.summary = {
-      addHeading: jest.fn().mockReturnThis(),
-      addRaw: jest.fn().mockReturnThis(),
-      write: jest.fn().mockResolvedValue({})
-    };
-    
-    // Set up input values for the action
-    core.getInput = jest.fn(name => {
-      const inputs = {
-        "token": "test-token",
-        "minimum-age-of-pr": "3",
-        "blackout-periods": "",
+    // Set up test environment with default configuration
+    const result = setupTestEnvironment({
+      inputOverrides: {
         "ignored-dependencies": "react-scripts", // Ignore react-scripts, which has a version downgrade
-        "always-allow": "",
-        "ignored-versions": "",
-        "semver-filter": "patch,minor",
-        "merge-method": "merge"
-      };
-      return inputs[name] || '';
+        "semver-filter": "patch,minor"
+      }
     });
+    mockOctokit = result.mockOctokit;
     
     // Mock PR list with one eligible group PR
     mockOctokit.rest.pulls.list.mockResolvedValue({
-      data: [{ 
-        number: 1, 
+      data: [createMockPR({
         title: "Bump the npm group with 7 updates",
-        user: { login: 'dependabot[bot]' },
-        body: prBody,
-        created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(), // 4 days old
-        head: { sha: 'abc123' },
-        html_url: 'https://github.com/owner/repo/pull/1'
-      }]
+        body: prBody
+      })]
     });
-
-    // Set up other required mocks
-    mockOctokit.rest.pulls.get.mockResolvedValue({
-      data: { mergeable: true, mergeable_state: 'clean' }
-    });
-
-    mockOctokit.rest.pulls.listCommits.mockResolvedValue({
-      data: [{ author: { login: 'dependabot[bot]' }, committer: { login: 'dependabot[bot]' } }]
-    });
-
-    mockOctokit.rest.repos.getCombinedStatusForRef.mockResolvedValue({
-      data: { state: 'success' }
-    });
-
-    mockOctokit.rest.pulls.listReviews.mockResolvedValue({ data: [] });
-    mockOctokit.rest.pulls.merge.mockResolvedValue({});
   });
   
   test('correctly filter out major updates and handle group PRs', async () => {
@@ -145,31 +79,11 @@ describe('npm group dependency updates', () => {
     
     // Reset PR list mock
     mockOctokit.rest.pulls.list.mockResolvedValue({
-      data: [{ 
-        number: 1, 
+      data: [createMockPR({
         title: "Bump the npm group with 7 updates",
-        user: { login: 'dependabot[bot]' },
-        body: prBody,
-        created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(), // 4 days old
-        head: { sha: 'abc123' },
-        html_url: 'https://github.com/owner/repo/pull/1'
-      }]
+        body: prBody
+      })]
     });
-    
-    // Set up required additional API mocks
-    mockOctokit.rest.pulls.get.mockResolvedValue({
-      data: { mergeable: true, mergeable_state: 'clean' }
-    });
-
-    mockOctokit.rest.pulls.listCommits.mockResolvedValue({
-      data: [{ author: { login: 'dependabot[bot]' }, committer: { login: 'dependabot[bot]' } }]
-    });
-
-    mockOctokit.rest.repos.getCombinedStatusForRef.mockResolvedValue({
-      data: { state: 'success' }
-    });
-
-    mockOctokit.rest.pulls.listReviews.mockResolvedValue({ data: [] });
     
     // Run the action
     await run();
@@ -225,31 +139,11 @@ describe('npm group dependency updates', () => {
     
     // Reset PR list mock with specific title
     mockOctokit.rest.pulls.list.mockResolvedValue({
-      data: [{ 
-        number: 1, 
+      data: [createMockPR({
         title: "Bump the npm group with 7 updates",
-        user: { login: 'dependabot[bot]' },
-        body: prBody,
-        created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
-        head: { sha: 'abc123' },
-        html_url: 'https://github.com/owner/repo/pull/1'
-      }]
+        body: prBody
+      })]
     });
-
-    // Set up mock responses for additional API calls
-    mockOctokit.rest.pulls.get.mockResolvedValue({
-      data: { mergeable: true, mergeable_state: 'clean' }
-    });
-
-    mockOctokit.rest.pulls.listCommits.mockResolvedValue({
-      data: [{ author: { login: 'dependabot[bot]' }, committer: { login: 'dependabot[bot]' } }]
-    });
-
-    mockOctokit.rest.repos.getCombinedStatusForRef.mockResolvedValue({
-      data: { state: 'success' }
-    });
-
-    mockOctokit.rest.pulls.listReviews.mockResolvedValue({ data: [] });
     
     // Run the action
     await run();
@@ -278,39 +172,24 @@ describe('npm group dependency updates', () => {
     expect(semverChangeType).toBe('unknown');
     
     // Override the PR list mock with a title indicating an npm group update with proper format
-    mockOctokit.rest.pulls.list.mockResolvedValue({
-      data: [{ 
-        number: 2, 
-        title: "Bump the npm group with downgrade",
-        user: { login: 'dependabot[bot]' },
-        body: `
+    const downgradeBody = `
 Bumps the npm group with downgrade.
 
 | Package | From | To |
 | --- | --- | --- |
 | [react-scripts](https://github.com/facebook/create-react-app/tree/HEAD/packages/react-scripts) | \`5.0.1\` | \`4.0.0\` |
 | [@testing-library/jest-dom](https://github.com/testing-library/jest-dom) | \`5.16.4\` | \`5.16.5\` |
-        `,
-        created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(), // 4 days old
+        `;
+
+    mockOctokit.rest.pulls.list.mockResolvedValue({
+      data: [createMockPR({
+        number: 2,
+        title: "Bump the npm group with downgrade",
+        body: downgradeBody,
         head: { sha: 'def456' },
         html_url: 'https://github.com/owner/repo/pull/2'
-      }]
+      })]
     });
-
-    // Set up mock responses for all required API calls
-    mockOctokit.rest.pulls.get.mockResolvedValue({
-      data: { mergeable: true, mergeable_state: 'clean' }
-    });
-
-    mockOctokit.rest.pulls.listCommits.mockResolvedValue({
-      data: [{ author: { login: 'dependabot[bot]' }, committer: { login: 'dependabot[bot]' } }]
-    });
-
-    mockOctokit.rest.repos.getCombinedStatusForRef.mockResolvedValue({
-      data: { state: 'success' }
-    });
-
-    mockOctokit.rest.pulls.listReviews.mockResolvedValue({ data: [] });
     
     // Use always-allow to explicitly allow the downgrade
     core.getInput.mockImplementation(name => {
@@ -337,31 +216,11 @@ Bumps the npm group with downgrade.
   test('handle PR with title "Bump the npm group in with 7 updates"', async () => {
     // Override the PR list mock with the specific title requested
     mockOctokit.rest.pulls.list.mockResolvedValue({
-      data: [{ 
-        number: 1, 
+      data: [createMockPR({
         title: "Bump the npm group in with 7 updates",
-        user: { login: 'dependabot[bot]' },
-        body: prBody,
-        created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(), // 4 days old
-        head: { sha: 'abc123' },
-        html_url: 'https://github.com/owner/repo/pull/1'
-      }]
+        body: prBody
+      })]
     });
-
-    // Set up mock responses for additional API calls
-    mockOctokit.rest.pulls.get.mockResolvedValue({
-      data: { mergeable: true, mergeable_state: 'clean' }
-    });
-
-    mockOctokit.rest.pulls.listCommits.mockResolvedValue({
-      data: [{ author: { login: 'dependabot[bot]' }, committer: { login: 'dependabot[bot]' } }]
-    });
-
-    mockOctokit.rest.repos.getCombinedStatusForRef.mockResolvedValue({
-      data: { state: 'success' }
-    });
-
-    mockOctokit.rest.pulls.listReviews.mockResolvedValue({ data: [] });
 
     // Set up core.getInput with the specific configuration to allow all dependencies
     core.getInput.mockImplementation(name => {

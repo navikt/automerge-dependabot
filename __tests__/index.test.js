@@ -20,7 +20,8 @@ describe('run', () => {
         listReviews: jest.fn()
       },
       repos: {
-        getCombinedStatusForRef: jest.fn()
+        getCombinedStatusForRef: jest.fn(),
+        get: jest.fn()
       }
     }
   };
@@ -30,7 +31,8 @@ describe('run', () => {
     repo: {
       owner: 'owner',
       repo: 'repo'
-    }
+    },
+    ref: 'refs/heads/main'
   };
 
   // Set up the GitHub getOctokit function
@@ -95,6 +97,11 @@ describe('run', () => {
     // Mock the PR reviews
     mockOctokit.rest.pulls.listReviews.mockResolvedValue({
       data: []
+    });
+    
+    // Mock the repository data for default branch check
+    mockOctokit.rest.repos.get.mockResolvedValue({
+      data: { default_branch: 'main' }
     });
     
     mockOctokit.rest.pulls.merge.mockResolvedValue({});
@@ -171,6 +178,62 @@ describe('run', () => {
     
     expect(mockOctokit.rest.pulls.list).not.toHaveBeenCalled();
     expect(core.info).toHaveBeenCalledWith(expect.stringContaining('blackout period'));
+  });
+
+  test('should exit early if not running from default branch', async () => {
+    // Set context to a different branch (e.g., feature branch)
+    github.context.ref = 'refs/heads/feature-branch';
+    
+    await run();
+    
+    expect(mockOctokit.rest.repos.get).toHaveBeenCalledWith({
+      owner: 'owner',
+      repo: 'repo'
+    });
+    expect(core.warning).toHaveBeenCalledWith(
+      expect.stringContaining('Action is not running from the default branch (main). Current ref: refs/heads/feature-branch. Skipping execution for security reasons.')
+    );
+    expect(mockOctokit.rest.pulls.list).not.toHaveBeenCalled();
+    
+    // Reset context for other tests
+    github.context.ref = 'refs/heads/main';
+  });
+
+  test('should exit early if default branch check fails', async () => {
+    // Make repos.get throw an error
+    mockOctokit.rest.repos.get.mockRejectedValue(new Error('API Error'));
+    
+    await run();
+    
+    expect(mockOctokit.rest.repos.get).toHaveBeenCalledWith({
+      owner: 'owner',
+      repo: 'repo'
+    });
+    expect(core.warning).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to verify default branch: API Error. Skipping execution for security reasons.')
+    );
+    expect(mockOctokit.rest.pulls.list).not.toHaveBeenCalled();
+    
+    // Reset repos.get mock for other tests
+    mockOctokit.rest.repos.get.mockResolvedValue({
+      data: { default_branch: 'main' }
+    });
+  });
+
+  test('should proceed when running from default branch', async () => {
+    // Ensure we're on the default branch
+    github.context.ref = 'refs/heads/main';
+    
+    await run();
+    
+    expect(mockOctokit.rest.repos.get).toHaveBeenCalledWith({
+      owner: 'owner',
+      repo: 'repo'
+    });
+    expect(core.info).toHaveBeenCalledWith(
+      expect.stringContaining('Action is running from the default branch (main). Proceeding with execution.')
+    );
+    expect(mockOctokit.rest.pulls.list).toHaveBeenCalled();
   });
   
   test('should exit early if no pull requests found', async () => {
