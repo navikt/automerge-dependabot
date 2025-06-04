@@ -111,9 +111,19 @@ async function runCli(options) {
     console.log(`🔍 Analyzing repository: ${owner}/${repo}`);
     
     // Setup authentication
-    let token = options.token || process.env.GITHUB_TOKEN;
+    const token = options.token || process.env.GITHUB_TOKEN;
+    
     if (!token) {
-      throw new Error('GitHub token not provided. Use --token option or set GITHUB_TOKEN environment variable.');
+      throw new Error('GitHub token not provided. Options:\n' +
+        '  1. Use --token option with a personal access token\n' +
+        '  2. Set GITHUB_TOKEN environment variable\n' +
+        '  3. Use GitHub CLI: --token "$(gh auth print-token)"\n' +
+        '  4. Use GitHub CLI with environment: export GITHUB_TOKEN=$(gh auth print-token)\n' +
+        '\n' +
+        '💡 For secure token management, consider using GitHub CLI (gh):\n' +
+        '   • Install: https://cli.github.com/\n' +
+        '   • Login: gh auth login\n' +
+        '   • Usage: automerge-dependabot run <repo-url> --token "$(gh auth print-token)"');
     }
     
     // Setup mock modules for CLI usage
@@ -254,9 +264,14 @@ function main() {
   program
     .name('automerge-dependabot')
     .description('CLI tool to analyze and optionally merge Dependabot pull requests')
-    .version('1.0.0')
+    .version('1.0.0');
+
+  // Main command
+  program
+    .command('run')
+    .description('Analyze and optionally merge Dependabot pull requests')
     .argument('<url>', 'GitHub repository URL (e.g., https://github.com/owner/repo)')
-    .option('-t, --token <token>', 'GitHub token (or use GITHUB_TOKEN env var)')
+    .option('-t, --token <token>', 'GitHub token (or use GITHUB_TOKEN env var, or use "$(gh auth print-token)" for secure CLI authentication)')
     .option('--minimum-age <days>', 'Minimum age of PR in days before merging', '0')
     .option('--blackout-periods <periods>', 'Blackout periods when action should not run')
     .option('--ignored-dependencies <deps>', 'Comma-separated list of dependencies to ignore')
@@ -276,6 +291,51 @@ function main() {
       
       await runCli(options);
     });
+
+  // Auth status command
+  program
+    .command('auth-status')
+    .description('Check authentication status and show secure setup options')
+    .action(() => {
+      console.log('🔑 Checking authentication status...\n');
+      
+      // Check environment variable
+      const envToken = process.env.GITHUB_TOKEN;
+      if (envToken) {
+        console.log('✅ GITHUB_TOKEN environment variable is set');
+        console.log(`   Token length: ${envToken.length} characters`);
+        console.log(`   Token prefix: ${envToken.substring(0, 8)}...`);
+      } else {
+        console.log('❌ GITHUB_TOKEN environment variable is not set');
+      }
+      
+      console.log('\n📋 Authentication options (in priority order):');
+      console.log('  1. --token option with a personal access token');
+      console.log('  2. GITHUB_TOKEN environment variable');
+      
+      console.log('\n🛡️  Secure authentication with GitHub CLI:');
+      console.log('  • Install GitHub CLI: https://cli.github.com/');
+      console.log('  • Login to GitHub: gh auth login');
+      console.log('  • Use with CLI tool: --token "$(gh auth print-token)"');
+      console.log('  • Set environment: export GITHUB_TOKEN=$(gh auth print-token)');
+      
+      console.log('\n💡 Benefits of using GitHub CLI:');
+      console.log('  • No hardcoded tokens in scripts or history');
+      console.log('  • Automatic token refresh when needed');
+      console.log('  • Works with SSO and 2FA enabled organizations');
+      console.log('  • Secure credential storage');
+      
+      console.log('\n🔗 Example usage:');
+      console.log('  automerge-dependabot run https://github.com/owner/repo --token "$(gh auth print-token)"');
+    });
+
+  // If no command specified, default to 'run' for backward compatibility
+  if (process.argv.length <= 2 || !['run', 'auth-status'].includes(process.argv[2])) {
+    // Insert 'run' command if not present
+    if (process.argv.length > 2 && !process.argv[2].startsWith('-')) {
+      process.argv.splice(2, 0, 'run');
+    }
+  }
   
   program.parse();
 }

@@ -139,16 +139,66 @@ Options:
   -h, --help                     Display help for command
 ```
 
+### Secure Authentication with GitHub CLI
+
+For enhanced security and better credential management, we recommend using [GitHub CLI (gh)](https://cli.github.com/) instead of hardcoding tokens:
+
+#### Setup GitHub CLI
+```bash
+# Install GitHub CLI (if not already installed)
+# macOS
+brew install gh
+
+# Windows
+winget install --id GitHub.cli
+
+# Ubuntu/Debian
+sudo apt install gh
+
+# Login to GitHub
+gh auth login
+```
+
+#### Use with CLI Tool
+```bash
+# Use GitHub CLI to provide token securely
+automerge-dependabot https://github.com/owner/repo --token "$(gh auth print-token)"
+
+# Or set as environment variable
+export GITHUB_TOKEN=$(gh auth print-token)
+automerge-dependabot https://github.com/owner/repo
+```
+
+#### Benefits of GitHub CLI Authentication
+- **🛡️ No hardcoded tokens** - Tokens aren't stored in scripts or shell history
+- **🔄 Automatic refresh** - GitHub CLI handles token renewal automatically
+- **🏢 SSO support** - Works seamlessly with organizations requiring SSO and 2FA
+- **🔐 Secure storage** - Credentials are stored securely by the GitHub CLI
+
+#### Check Authentication Status
+```bash
+# Check if authentication is properly configured
+automerge-dependabot auth-status
+```
+
 ### CLI Examples
 
 **Dry run analysis** (default behavior, won't actually merge):
 ```bash
+# Using GitHub CLI (recommended for security)
+automerge-dependabot https://github.com/owner/repo --token "$(gh auth print-token)"
+
 # Using environment variable for token
 export GITHUB_TOKEN=your_token_here
 automerge-dependabot https://github.com/owner/repo
 
-# Or pass token directly
+# Or pass token directly (less secure)
 automerge-dependabot https://github.com/owner/repo --token your_token_here
+```
+
+**Check authentication status**:
+```bash
+automerge-dependabot auth-status
 ```
 
 **Actually merge PRs**:
