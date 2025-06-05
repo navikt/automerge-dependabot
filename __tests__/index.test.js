@@ -603,5 +603,146 @@ describe('run', () => {
       // Clean up environment
       delete process.env.GITHUB_STEP_SUMMARY;
     });
+    
+  test('should re-verify and retry PR merge when base branch is modified', async () => {
+    // Setup mocks for multiple PRs
+    mockOctokit.rest.pulls.list.mockResolvedValue({
+      data: [
+        { 
+          number: 1, 
+          title: 'Bump axios from 0.21.0 to 0.21.1',
+          user: { login: 'dependabot[bot]' },
+          created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
+          head: { sha: 'abc123' }
+        },
+        { 
+          number: 2, 
+          title: 'Bump lodash from 4.17.20 to 4.17.21',
+          user: { login: 'dependabot[bot]' },
+          created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
+          head: { sha: 'def456' }
+        }
+      ]
+    });
+    
+    // Both PRs are initially mergeable
+    mockOctokit.rest.pulls.get.mockImplementation(({ pull_number }) => {
+      return {
+        data: {
+          number: pull_number,
+          mergeable: true
+        }
+      };
+    });
+    
+    let mergeCallCount = 0;
+    mockOctokit.rest.pulls.merge.mockImplementation(({ pull_number }) => {
+      mergeCallCount++;
+      
+      if (pull_number === 1) {
+        // First PR merges successfully
+        return Promise.resolve();
+      } else if (pull_number === 2) {
+        if (mergeCallCount === 2) {
+          // First attempt at PR #2 fails with base branch modified error
+          throw new Error('Base branch was modified. Review and try the merge again.');
+        } else {
+          // Retry succeeds
+          return Promise.resolve();
+        }
+      }
+    });
+    
+    await run();
+    
+    // Should merge both PRs (PR #1 on first try, PR #2 on retry)
+    expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledTimes(3); // PR #1 once, PR #2 twice (fail + retry)
+    
+    // Should log the retry attempt
+    expect(core.warning).toHaveBeenCalledWith(
+      expect.stringContaining('PR #2 failed due to base branch modification. Re-verifying mergeability and retrying...')
+    );
+    expect(core.info).toHaveBeenCalledWith(
+      expect.stringContaining('Retrying merge for PR #2 after re-verification')
+    );
+    expect(core.info).toHaveBeenCalledWith(
+      expect.stringContaining('Successfully merged PR #2 on retry')
+    );
+  });
+  
+  test('should skip PR that becomes non-mergeable after base branch modification', async () => {
+    // Setup mocks for multiple PRs
+    mockOctokit.rest.pulls.list.mockResolvedValue({
+      data: [
+        { 
+          number: 1, 
+          title: 'Bump axios from 0.21.0 to 0.21.1',
+          user: { login: 'dependabot[bot]' },
+          created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
+          head: { sha: 'abc123' }
+        },
+        { 
+          number: 2, 
+          title: 'Bump lodash from 4.17.20 to 4.17.21',
+          user: { login: 'dependabot[bot]' },
+          created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
+          head: { sha: 'def456' }
+        }
+      ]
+    });
+    
+    let reVerifyCallCount = 0;
+    mockOctokit.rest.pulls.get.mockImplementation(({ pull_number }) => {
+      if (pull_number === 1) {
+        return {
+          data: {
+            number: 1,
+            mergeable: true
+          }
+        };
+      } else if (pull_number === 2) {
+        // For PR #2, check if this is a re-verification call (after error)
+        // We can track this by counting calls after we've triggered the error
+        const isReVerificationCall = reVerifyCallCount > 0;
+        if (isReVerificationCall) {
+          return {
+            data: {
+              number: 2,
+              mergeable: false // Not mergeable on re-verification
+            }
+          };
+        } else {
+          return {
+            data: {
+              number: 2,
+              mergeable: true // Initially mergeable
+            }
+          };
+        }
+      }
+    });
+    
+    mockOctokit.rest.pulls.merge.mockImplementation(({ pull_number }) => {
+      if (pull_number === 1) {
+        return Promise.resolve();
+      } else if (pull_number === 2) {
+        reVerifyCallCount++; // Track that we're about to trigger re-verification
+        throw new Error('Base branch was modified. Review and try the merge again.');
+      }
+    });
+    
+    await run();
+    
+    // Should merge PR #1 successfully, attempt PR #2 once (which fails and doesn't retry due to non-mergeable state)
+    expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledTimes(2);
+    
+    // Should log the base branch modification and that PR becomes non-mergeable
+    expect(core.warning).toHaveBeenCalledWith(
+      expect.stringContaining('PR #2 failed due to base branch modification. Re-verifying mergeability and retrying...')
+    );
+    expect(core.warning).toHaveBeenCalledWith(
+      expect.stringContaining('PR #2 is no longer mergeable after base branch modification. Skipping.')
+    );
+  });
   });
 });

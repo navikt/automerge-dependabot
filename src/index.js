@@ -116,24 +116,67 @@ async function run() {
                 });
                 
                 core.info(`Successfully merged PR #${pr.number}`);
-              } catch (mergeError) {
-                // Check for merge queue warnings in the error message
-                const isMergeQueueError = 
-                  (mergeError.message && (
-                    mergeError.message.toLowerCase().includes('merge queue') || 
-                    mergeError.message.toLowerCase().includes('branch protection') ||
-                    mergeError.message.toLowerCase().includes('required status check')
-                  )) ||
-                  (mergeError.status === 405 || mergeError.status === 422);
                 
-                // If this appears to be a merge queue error and merge method isn't 'merge'
-                if (isMergeQueueError && mergeMethod !== 'merge') {
-                  core.warning(`PR #${pr.number} may require a merge queue, but merge method is set to '${mergeMethod}'. Only 'merge' method is supported with merge queues.`);
-                  core.warning('To use merge queues, change the \'merge-method\' input to \'merge\' in your workflow configuration.');
+                // Add a delay after successful merge to allow GitHub to process the changes
+                // This helps prevent race conditions with subsequent PRs
+                if (retryDelayMs > 0) {
+                  core.debug(`Waiting ${retryDelayMs}ms after merge to allow GitHub to process changes`);
+                  await new Promise(resolve => setTimeout(resolve, retryDelayMs));
                 }
                 
-                // Always throw the error since we're not actually handling merge queues
-                throw mergeError;
+              } catch (mergeError) {
+                // Check if this is a "base branch was modified" error that we can retry
+                const isBaseBranchModifiedError = 
+                  mergeError.message && 
+                  mergeError.message.toLowerCase().includes('base branch was modified');
+                
+                if (isBaseBranchModifiedError) {
+                  core.warning(`PR #${pr.number} failed due to base branch modification. Re-verifying mergeability and retrying...`);
+                  
+                  // Re-verify PR mergeability after base branch modification
+                  const { checkPRMergeability } = require('./pullRequests');
+                  const currentPRDetails = await checkPRMergeability(octokit, context.repo.owner, context.repo.repo, pr.number, retryDelayMs);
+                  
+                  if (!currentPRDetails || !currentPRDetails.mergeable) {
+                    core.warning(`PR #${pr.number} is no longer mergeable after base branch modification. Skipping.`);
+                    continue;
+                  }
+                  
+                  // Retry the merge
+                  core.info(`Retrying merge for PR #${pr.number} after re-verification`);
+                  await octokit.rest.pulls.merge({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    pull_number: pr.number,
+                    merge_method: mergeMethod
+                  });
+                  
+                  core.info(`Successfully merged PR #${pr.number} on retry`);
+                  
+                  // Add a delay after successful merge
+                  if (retryDelayMs > 0) {
+                    core.debug(`Waiting ${retryDelayMs}ms after merge to allow GitHub to process changes`);
+                    await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+                  }
+                } else {
+                  // Check for merge queue warnings in the error message
+                  const isMergeQueueError = 
+                    (mergeError.message && (
+                      mergeError.message.toLowerCase().includes('merge queue') || 
+                      mergeError.message.toLowerCase().includes('branch protection') ||
+                      mergeError.message.toLowerCase().includes('required status check')
+                    )) ||
+                    (mergeError.status === 405 || mergeError.status === 422);
+                  
+                  // If this appears to be a merge queue error and merge method isn't 'merge'
+                  if (isMergeQueueError && mergeMethod !== 'merge') {
+                    core.warning(`PR #${pr.number} may require a merge queue, but merge method is set to '${mergeMethod}'. Only 'merge' method is supported with merge queues.`);
+                    core.warning('To use merge queues, change the \'merge-method\' input to \'merge\' in your workflow configuration.');
+                  }
+                  
+                  // Always throw the error since we're not handling other types of merge errors
+                  throw mergeError;
+                }
               }
             } catch (error) {
               core.warning(`Failed to merge PR #${pr.number}: ${error.message}`);
