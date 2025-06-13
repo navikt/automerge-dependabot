@@ -341,7 +341,7 @@ function main() {
       // Convert string options to appropriate types
       options.url = url;
       options.minimumAge = parseInt(options.minimumAge, 10);
-      options.retryDelayMs = parseInt(options.retryDelayMs, 10) || 2000;
+      options.retryDelayMs = parseInt(options.retryDelayMs, 10) || 10000;
       options.dryRun = !options.noDryRun; // Commander converts --no-dry-run to noDryRun: true
       
       await runCli(options);

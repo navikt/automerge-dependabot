@@ -224,7 +224,7 @@ async function findMergeablePRs(octokit, owner, repo, minimumAgeInDays, retryDel
  * @param {number} retryDelayMs - Delay in milliseconds between retries
  * @returns {Object|null} PR details with mergeable state, or null if could not be determined
  */
-async function checkPRMergeability(octokit, owner, repo, pullNumber, retryDelayMs = 2000) {
+async function checkPRMergeability(octokit, owner, repo, pullNumber, retryDelayMs = 10000) {
   const maxRetries = 3;
   
   for (let attempt = 1; attempt <= maxRetries; attempt++) {

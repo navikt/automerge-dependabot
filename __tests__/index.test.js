@@ -46,7 +46,8 @@ describe('run', () => {
     'ignored-dependencies': '',
     'ignored-versions': '',
     'semver-filter': '',
-    'merge-method': 'merge'
+    'merge-method': 'merge',
+    'retry-delay-ms': '20',
   };
 
   beforeEach(() => {

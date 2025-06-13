@@ -72,7 +72,8 @@ describe('npm group dependency updates', () => {
         "always-allow": "*", // Use wildcard to allow all dependencies
         "ignored-versions": "", // Don't ignore any versions
         "semver-filter": "patch,minor,major,unknown", // Allow all semver changes including unknown
-        "merge-method": "merge"
+        "merge-method": "merge",
+        "retry-delay-ms": "20"
       };
       return inputs[name] || '';
     });
@@ -106,7 +107,8 @@ describe('npm group dependency updates', () => {
         "always-allow": "",
         "ignored-versions": "",
         "semver-filter": "patch,minor,major", // Allow all updates
-        "merge-method": "merge"
+        "merge-method": "merge",
+        "retry-delay-ms": "20"
       };
       return inputs[name] || '';
     });
@@ -132,7 +134,8 @@ describe('npm group dependency updates', () => {
         "always-allow": "*@*", // Always allow all versions with wildcard
         "ignored-versions": "",
         "semver-filter": "patch,minor,major,unknown", // Allow all semver changes including unknown
-        "merge-method": "merge"
+        "merge-method": "merge",
+        "retry-delay-ms": "20"
       };
       return inputs[name] || '';
     });
@@ -201,7 +204,8 @@ Bumps the npm group with downgrade.
         "always-allow": "react-scripts", // Always allow react-scripts updates including downgrades
         "ignored-versions": "", 
         "semver-filter": "patch,minor,major", // Don't include unknown in the filter
-        "merge-method": "merge"
+        "merge-method": "merge",
+        "retry-delay-ms": "20"
       };
       return inputs[name] || '';
     });
@@ -232,7 +236,8 @@ Bumps the npm group with downgrade.
         "always-allow": "*", // Allow all dependencies with wildcard 
         "ignored-versions": "", 
         "semver-filter": "patch,minor,major,unknown", // Allow all semver changes
-        "merge-method": "merge"
+        "merge-method": "merge",
+        "retry-delay-ms": "20"
       };
       return inputs[name] || '';
     });
