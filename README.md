@@ -301,6 +301,8 @@ on:
 jobs:
   automerge:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Required to merge PRs
     steps:
       - name: Automerge Dependabot PRs
         uses: navikt/automerge-dependabot@v1
@@ -359,6 +361,7 @@ jobs:
    - Semantic versioning filters
 6. Creates a detailed workflow summary showing which PRs will be merged and which were filtered out
 7. Eligible pull requests are automatically merged using the specified merge method
+8. In case of a merge conflict or other issues, the action will retry up to 3 times with a delay between attempts
 
 ## Workflow Summary
 

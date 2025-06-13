@@ -180,4 +180,254 @@ describe('TimeUtils Module', () => {
     const secondsAgo = new Date('2025-05-13T11:59:30Z');
     expect(timeUtils.fromNow(secondsAgo)).toBe('30 seconds ago');
   });
+
+  test('should handle multiple day blackout periods', () => {
+    // Mock date to Saturday (day 6)
+    const mockSaturday = new Date(2025, 4, 17); // May 17, 2025 is a Saturday
+    global.Date = class extends Date {
+      constructor(...args) {
+        if (args.length === 0) {
+          return mockSaturday;
+        }
+        return new originalDate(...args);
+      }
+      getDay() {
+        return 6; // Saturday is 6
+      }
+    };
+    
+    // Saturday should be in blackout period
+    const result1 = timeUtils.shouldRunAtCurrentTime('Sat,Sun');
+    expect(result1).toBe(false);
+    
+    // Mock date to Sunday (day 0)
+    const mockSunday = new Date(2025, 4, 18); // May 18, 2025 is a Sunday
+    global.Date = class extends Date {
+      constructor(...args) {
+        if (args.length === 0) {
+          return mockSunday;
+        }
+        return new originalDate(...args);
+      }
+      getDay() {
+        return 0; // Sunday is 0
+      }
+    };
+    
+    // Sunday should be in blackout period
+    const result2 = timeUtils.shouldRunAtCurrentTime('Sat,Sun');
+    expect(result2).toBe(false);
+    
+    // Mock date to Monday (day 1)
+    const mockMonday = new Date(2025, 4, 19); // May 19, 2025 is a Monday
+    global.Date = class extends Date {
+      constructor(...args) {
+        if (args.length === 0) {
+          return mockMonday;
+        }
+        return new originalDate(...args);
+      }
+      getDay() {
+        return 1; // Monday is 1
+      }
+    };
+    
+    // Monday should not be in blackout period
+    const result3 = timeUtils.shouldRunAtCurrentTime('Sat,Sun');
+    expect(result3).toBe(true);
+  });
+
+  test('should handle date range with month names', () => {
+    // Mock date to Dec 30, 2025
+    const christmasWeek = new Date(2025, 11, 30);
+    global.Date = class extends Date {
+      constructor(...args) {
+        if (args.length === 0) {
+          return christmasWeek;
+        }
+        return new originalDate(...args);
+      }
+    };
+    
+    // During holiday period
+    const result1 = timeUtils.shouldRunAtCurrentTime('Dec 24-Jan 5');
+    expect(result1).toBe(false);
+    
+    // Mock date to Jan 10, 2026 (after holiday period)
+    const afterHoliday = new Date(2026, 0, 10);
+    global.Date = class extends Date {
+      constructor(...args) {
+        if (args.length === 0) {
+          return afterHoliday;
+        }
+        return new originalDate(...args);
+      }
+    };
+    
+    // After holiday period
+    const result2 = timeUtils.shouldRunAtCurrentTime('Dec 24-Jan 5');
+    expect(result2).toBe(true);
+  });
+
+  test('should handle time range without T prefix', () => {
+    // Mock date to 9:30 AM
+    const mockTime = new Date(2025, 4, 13, 9, 30, 0);
+    global.Date = class extends Date {
+      constructor(...args) {
+        if (args.length === 0) {
+          return mockTime;
+        }
+        return new originalDate(...args);
+      }
+    };
+    
+    // During blackout time
+    const result1 = timeUtils.shouldRunAtCurrentTime('9:00-10:00');
+    expect(result1).toBe(false);
+    
+    // Mock date to 10:30 AM (after blackout time)
+    const laterTime = new Date(2025, 4, 13, 10, 30, 0);
+    global.Date = class extends Date {
+      constructor(...args) {
+        if (args.length === 0) {
+          return laterTime;
+        }
+        return new originalDate(...args);
+      }
+    };
+    
+    // After blackout time
+    const result2 = timeUtils.shouldRunAtCurrentTime('9:00-10:00');
+    expect(result2).toBe(true);
+  });
+
+  test('should handle day-specific time ranges', () => {
+    // Mock date to Monday 9:30 AM
+    const mondayMorning = new Date(2025, 4, 12, 9, 30, 0); // May 12, 2025 is a Monday
+    global.Date = class extends Date {
+      constructor(...args) {
+        if (args.length === 0) {
+          return mondayMorning;
+        }
+        return new originalDate(...args);
+      }
+      getDay() {
+        return 1; // Monday is 1
+      }
+    };
+    
+    // Monday 9:30 AM should be in blackout period
+    const result1 = timeUtils.shouldRunAtCurrentTime('Mon 9:00-10:00,Wed 13:00-14:00');
+    expect(result1).toBe(false);
+    
+    // Mock date to Wednesday 13:30 PM
+    const wednesdayAfternoon = new Date(2025, 4, 14, 13, 30, 0); // May 14, 2025 is a Wednesday
+    global.Date = class extends Date {
+      constructor(...args) {
+        if (args.length === 0) {
+          return wednesdayAfternoon;
+        }
+        return new originalDate(...args);
+      }
+      getDay() {
+        return 3; // Wednesday is 3
+      }
+    };
+    
+    // Wednesday 13:30 should be in blackout period
+    const result2 = timeUtils.shouldRunAtCurrentTime('Mon 9:00-10:00,Wed 13:00-14:00');
+    expect(result2).toBe(false);
+    
+    // Mock date to Tuesday 9:30 AM
+    const tuesdayMorning = new Date(2025, 4, 13, 9, 30, 0); // May 13, 2025 is a Tuesday
+    global.Date = class extends Date {
+      constructor(...args) {
+        if (args.length === 0) {
+          return tuesdayMorning;
+        }
+        return new originalDate(...args);
+      }
+      getDay() {
+        return 2; // Tuesday is 2
+      }
+    };
+    
+    // Tuesday 9:30 AM should not be in blackout period
+    const result3 = timeUtils.shouldRunAtCurrentTime('Mon 9:00-10:00,Wed 13:00-14:00');
+    expect(result3).toBe(true);
+  });
+
+  test('should handle complex mixed blackout periods', () => {
+    // Mock date to Saturday 9:30 AM
+    const saturdayMorning = new Date(2025, 4, 17, 9, 30, 0); // May 17, 2025 is a Saturday
+    global.Date = class extends Date {
+      constructor(...args) {
+        if (args.length === 0) {
+          return saturdayMorning;
+        }
+        return new originalDate(...args);
+      }
+      getDay() {
+        return 6; // Saturday is 6
+      }
+    };
+    
+    // Saturday should be in blackout (weekend)
+    const result1 = timeUtils.shouldRunAtCurrentTime('Sat,Sun,Dec 24-Jan 5,9:00-10:00');
+    expect(result1).toBe(false);
+    
+    // Mock date to Monday 9:30 AM
+    const mondayMorning = new Date(2025, 4, 12, 9, 30, 0); // May 12, 2025 is a Monday
+    global.Date = class extends Date {
+      constructor(...args) {
+        if (args.length === 0) {
+          return mondayMorning;
+        }
+        return new originalDate(...args);
+      }
+      getDay() {
+        return 1; // Monday is 1
+      }
+    };
+    
+    // Monday 9:30 AM should be in blackout (time range)
+    const result2 = timeUtils.shouldRunAtCurrentTime('Sat,Sun,Dec 24-Jan 5,9:00-10:00');
+    expect(result2).toBe(false);
+    
+    // Mock date to Dec 30, 2025
+    const holidayPeriod = new Date(2025, 11, 30, 15, 0, 0);
+    global.Date = class extends Date {
+      constructor(...args) {
+        if (args.length === 0) {
+          return holidayPeriod;
+        }
+        return new originalDate(...args);
+      }
+      getDay() {
+        return 1; // Monday
+      }
+    };
+    
+    // Dec 30 should be in blackout (holiday period)
+    const result3 = timeUtils.shouldRunAtCurrentTime('Sat,Sun,Dec 24-Jan 5,9:00-10:00');
+    expect(result3).toBe(false);
+    
+    // Mock date to Tuesday 11:00 AM (outside all blackout periods)
+    const tuesdayMorning = new Date(2025, 4, 13, 11, 0, 0); // May 13, 2025 is a Tuesday
+    global.Date = class extends Date {
+      constructor(...args) {
+        if (args.length === 0) {
+          return tuesdayMorning;
+        }
+        return new originalDate(...args);
+      }
+      getDay() {
+        return 2; // Tuesday is 2
+      }
+    };
+    
+    // Tuesday 11:00 AM should not be in any blackout period
+    const result4 = timeUtils.shouldRunAtCurrentTime('Sat,Sun,Dec 24-Jan 5,9:00-10:00');
+    expect(result4).toBe(true);
+  });
 });

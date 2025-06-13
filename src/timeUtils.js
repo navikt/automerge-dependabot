@@ -134,6 +134,95 @@ function shouldRunAtCurrentTime(blackoutPeriodsInput) {
 }
 
 /**
+ * Parse month name date range (e.g., "Dec 24-Jan 5")
+ * 
+ * @param {string} rangeStr - Month name date range string
+ * @param {Date} currentTime - Current time for year context
+ * @returns {Object} Object with start and end dates
+ */
+function parseMonthNameDateRange(rangeStr, currentTime) {
+  const monthNames = {
+    'jan': 0, 'feb': 1, 'mar': 2, 'apr': 3, 'may': 4, 'jun': 5,
+    'jul': 6, 'aug': 7, 'sep': 8, 'oct': 9, 'nov': 10, 'dec': 11
+  };
+  
+  const [startPart, endPart] = rangeStr.split('-');
+  
+  // Parse start date (e.g., "Dec 24")
+  const startMatch = startPart.trim().match(/^(\w{3})\s+(\d{1,2})$/i);
+  if (!startMatch) throw new Error(`Invalid start date format: ${startPart}`);
+  
+  const startMonth = monthNames[startMatch[1].toLowerCase()];
+  const startDay = parseInt(startMatch[2], 10);
+  
+  // Parse end date (e.g., "Jan 5")
+  const endMatch = endPart.trim().match(/^(\w{3})\s+(\d{1,2})$/i);
+  if (!endMatch) throw new Error(`Invalid end date format: ${endPart}`);
+  
+  const endMonth = monthNames[endMatch[1].toLowerCase()];
+  const endDay = parseInt(endMatch[2], 10);
+  
+  const currentYear = currentTime.getFullYear();
+  
+  // Handle year boundary crossing (e.g., Dec 24 - Jan 5)
+  let startYear = currentYear;
+  let endYear = currentYear;
+  
+  if (startMonth > endMonth) {
+    // Range crosses year boundary
+    if (currentTime.getMonth() >= startMonth) {
+      // We're in the start year, end is next year
+      endYear = currentYear + 1;
+    } else {
+      // We're in the end year, start was last year
+      startYear = currentYear - 1;
+    }
+  }
+  
+  return {
+    start: new Date(startYear, startMonth, startDay),
+    end: new Date(endYear, endMonth, endDay)
+  };
+}
+
+/**
+ * Parse simple time range (e.g., "9:00-10:00")
+ * 
+ * @param {string} rangeStr - Simple time range string
+ * @param {Date} currentTime - Current time for date context
+ * @returns {Object} Object with start and end times
+ */
+function parseSimpleTimeRange(rangeStr, currentTime) {
+  const [startTimeStr, endTimeStr] = rangeStr.split('-');
+  
+  // Parse time components
+  const startMatch = startTimeStr.trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  const endMatch = endTimeStr.trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  
+  if (!startMatch || !endMatch) {
+    throw new Error(`Invalid time format in range: ${rangeStr}`);
+  }
+  
+  const startHours = parseInt(startMatch[1], 10);
+  const startMinutes = parseInt(startMatch[2], 10);
+  const startSeconds = startMatch[3] ? parseInt(startMatch[3], 10) : 0;
+  
+  const endHours = parseInt(endMatch[1], 10);
+  const endMinutes = parseInt(endMatch[2], 10);
+  const endSeconds = endMatch[3] ? parseInt(endMatch[3], 10) : 0;
+  
+  // Get current date components
+  const year = currentTime.getFullYear();
+  const month = currentTime.getMonth();
+  const day = currentTime.getDate();
+  
+  return {
+    start: new Date(year, month, day, startHours, startMinutes, startSeconds),
+    end: new Date(year, month, day, endHours, endMinutes, endSeconds)
+  };
+}
+
+/**
  * Check if the given time is within a specific blackout period
  * 
  * @param {Date} currentTime - Current time as Date object
@@ -141,6 +230,28 @@ function shouldRunAtCurrentTime(blackoutPeriodsInput) {
  * @returns {boolean} True if in blackout period
  */
 function isInBlackoutPeriod(currentTime, period) {
+  // Handle day-specific time ranges: "Mon 9:00-10:00"
+  const dayTimeMatch = period.match(/^(Sun|Mon|Tue|Wed|Thu|Fri|Sat)\s+(.+)$/i);
+  if (dayTimeMatch) {
+    const dayName = dayTimeMatch[1].substring(0, 3).toLowerCase();
+    const timeRange = dayTimeMatch[2];
+    const currentDayName = getDayShortName(currentTime);
+    
+    // First check if it's the right day
+    if (currentDayName !== dayName) {
+      return false;
+    }
+    
+    // Then check the time range
+    try {
+      const { start, end } = parseSimpleTimeRange(timeRange, currentTime);
+      return isBetween(currentTime, start, end);
+    } catch (error) {
+      core.warning(`Invalid time range in day-specific period: ${period}. Error: ${error.message}`);
+      return false;
+    }
+  }
+  
   // Handle ISO 8601 date range format: "2023-12-24/2024-01-05"
   if (period.includes('/') && !period.startsWith('T')) {
     try {
@@ -149,6 +260,28 @@ function isInBlackoutPeriod(currentTime, period) {
       return isInBlackout;
     } catch (error) {
       core.warning(`Invalid ISO 8601 date range format: ${period}. Error: ${error.message}`);
+      return false;
+    }
+  }
+  
+  // Handle month name date range: "Dec 24-Jan 5"
+  if (period.includes('-') && /\w{3}\s+\d{1,2}-\w{3}\s+\d{1,2}/.test(period)) {
+    try {
+      const { start, end } = parseMonthNameDateRange(period, currentTime);
+      return isBetween(currentTime, start, end, 'day');
+    } catch (error) {
+      core.warning(`Invalid month name date range format: ${period}. Error: ${error.message}`);
+      return false;
+    }
+  }
+  
+  // Handle simple time range: "9:00-10:00"
+  if (period.includes('-') && /^\d{1,2}:\d{2}(?::\d{2})?-\d{1,2}:\d{2}(?::\d{2})?$/.test(period)) {
+    try {
+      const { start, end } = parseSimpleTimeRange(period, currentTime);
+      return isBetween(currentTime, start, end);
+    } catch (error) {
+      core.warning(`Invalid simple time range format: ${period}. Error: ${error.message}`);
       return false;
     }
   }
