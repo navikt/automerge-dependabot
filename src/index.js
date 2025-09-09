@@ -45,13 +45,11 @@ async function run() {
     // Initialize variables for PR processing
     let pullRequests = [];
     let filteredPRs = [];
-    let inBlackoutPeriod = false;
     let initialPRs = [];
     let mergedPRCount = 0;
 
     // Check if the action should run at the current time
     if (!shouldRunAtCurrentTime(blackoutPeriods)) {
-      inBlackoutPeriod = true;
       core.info('Action is in a blackout period. Skipping execution.');
     } else {      
       // Create octokit client
