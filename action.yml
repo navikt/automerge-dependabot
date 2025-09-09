@@ -41,6 +41,10 @@ inputs:
     required: false
     default: '2000'
 
+outputs:
+  merged-pr-count:
+    description: The number of pull requests that were successfully merged during execution
+
 runs:
   using: node20
   main: dist/index.js

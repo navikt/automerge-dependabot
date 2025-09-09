@@ -112,6 +112,7 @@ describe('run', () => {
     core.warning = jest.fn();
     core.setFailed = jest.fn();
     core.debug = jest.fn();
+    core.setOutput = jest.fn();
   });
 
   test('handles direct token value', async () => {
@@ -159,7 +160,7 @@ describe('run', () => {
     );
   });
 
-  test('should exit early if in blackout period', async () => {
+  test('should exit early and return 0 if in blackout period', async () => {
     // Set a blackout period that includes the current time
     const now = new Date();
     const startTime = new Date(now);
@@ -175,17 +176,20 @@ describe('run', () => {
       return defaultInputs[name] || '';
     });
     
-    await run();
+    const result = await run();
     
     expect(mockOctokit.rest.pulls.list).not.toHaveBeenCalled();
     expect(core.info).toHaveBeenCalledWith(expect.stringContaining('blackout period'));
+
+    expect(result).toBe(0);
+    expect(core.setOutput).toHaveBeenCalledWith('merged-pr-count', 0);
   });
 
-  test('should exit early if not running from default branch', async () => {
+  test('should exit early and return 0 if not running from default branch', async () => {
     // Set context to a different branch (e.g., feature branch)
     github.context.ref = 'refs/heads/feature-branch';
     
-    await run();
+    const result = await run();
     
     expect(mockOctokit.rest.repos.get).toHaveBeenCalledWith({
       owner: 'owner',
@@ -195,16 +199,19 @@ describe('run', () => {
       expect.stringContaining('Action is not running from the default branch (main). Current ref: refs/heads/feature-branch. Skipping execution for security reasons.')
     );
     expect(mockOctokit.rest.pulls.list).not.toHaveBeenCalled();
-    
+
+    expect(result).toBe(0);
+    expect(core.setOutput).toHaveBeenCalledWith('merged-pr-count', 0);
+
     // Reset context for other tests
     github.context.ref = 'refs/heads/main';
   });
 
-  test('should exit early if default branch check fails', async () => {
+  test('should exit early and return 0 if default branch check fails', async () => {
     // Make repos.get throw an error
     mockOctokit.rest.repos.get.mockRejectedValue(new Error('API Error'));
     
-    await run();
+    const result = await run();
     
     expect(mockOctokit.rest.repos.get).toHaveBeenCalledWith({
       owner: 'owner',
@@ -214,7 +221,10 @@ describe('run', () => {
       expect.stringContaining('Failed to verify default branch: API Error. Skipping execution for security reasons.')
     );
     expect(mockOctokit.rest.pulls.list).not.toHaveBeenCalled();
-    
+
+    expect(result).toBe(0);
+    expect(core.setOutput).toHaveBeenCalledWith('merged-pr-count', 0);
+
     // Reset repos.get mock for other tests
     mockOctokit.rest.repos.get.mockResolvedValue({
       data: { default_branch: 'main' }
@@ -237,14 +247,17 @@ describe('run', () => {
     expect(mockOctokit.rest.pulls.list).toHaveBeenCalled();
   });
   
-  test('should exit early if no pull requests found', async () => {
+  test('should exit early and return 0 if no pull requests found', async () => {
     // Override the pull requests list to return empty
     mockOctokit.rest.pulls.list.mockResolvedValue({ data: [] });
     
-    await run();
+    const result = await run();
     
     expect(mockOctokit.rest.pulls.list).toHaveBeenCalled();
     expect(core.info).toHaveBeenCalledWith(expect.stringContaining('No eligible pull requests found'));
+
+    expect(result).toBe(0);
+    expect(core.setOutput).toHaveBeenCalledWith('merged-pr-count', 0);
   });
   
   test('should filter out pull requests based on filters', async () => {
@@ -269,11 +282,14 @@ describe('run', () => {
       return defaultInputs[name] || '';
     });
     
-    await run();
+    const result = await run();
     
     expect(mockOctokit.rest.pulls.list).toHaveBeenCalled();
     expect(mockOctokit.rest.pulls.merge).not.toHaveBeenCalled();
     expect(core.info).toHaveBeenCalledWith(expect.stringContaining('No pull requests passed the filters'));
+
+    expect(result).toBe(0);
+    expect(core.setOutput).toHaveBeenCalledWith('merged-pr-count', 0);
   });
   
   test('should attempt to merge eligible pull requests', async () => {
@@ -292,7 +308,7 @@ describe('run', () => {
       ]
     });
     
-    await run();
+    const result = await run();
     
     expect(mockOctokit.rest.pulls.list).toHaveBeenCalled();
     expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledWith({
@@ -302,6 +318,9 @@ describe('run', () => {
       merge_method: 'merge'
     });
     expect(core.info).toHaveBeenCalledWith(expect.stringContaining('Successfully merged PR #1'));
+
+    expect(result).toBe(1);
+    expect(core.setOutput).toHaveBeenCalledWith('merged-pr-count', 1);
   });
   
   test('should handle errors when merging pull requests', async () => {
@@ -323,10 +342,13 @@ describe('run', () => {
     // Make the merge function throw an error
     mockOctokit.rest.pulls.merge.mockRejectedValue(new Error('Merge failed'));
     
-    await run();
+    const result = await run();
     
     expect(mockOctokit.rest.pulls.merge).toHaveBeenCalled();
     expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('Failed to merge PR #1'));
+
+    expect(result).toBe(0);
+    expect(core.setOutput).toHaveBeenCalledWith('merged-pr-count', 0);
   });
   
   test('should fail if token is not found', async () => {
@@ -379,12 +401,15 @@ describe('run', () => {
       message: 'Pull request requires merge queue'
     });
     
-    await run();
+    const result = await run();
     
     // Should detect merge queue error and warn about it
     expect(mockOctokit.rest.pulls.merge).toHaveBeenCalled();
     expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('may require a merge queue, but merge method is set to'));
     expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('change the \'merge-method\' input to \'merge\''));
+
+    expect(result).toBe(0);
+    expect(core.setOutput).toHaveBeenCalledWith('merged-pr-count', 0);
   });
   
   describe('Multi-dependency PR handling', () => {
@@ -419,7 +444,7 @@ describe('run', () => {
         ]
       });
       
-      await run();
+      const result = await run();
       
       expect(mockOctokit.rest.pulls.list).toHaveBeenCalled();
       expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledWith({
@@ -429,6 +454,9 @@ describe('run', () => {
         merge_method: 'merge'
       });
       expect(core.info).toHaveBeenCalledWith(expect.stringContaining('Successfully merged PR #42'));
+
+      expect(result).toBe(1);
+      expect(core.setOutput).toHaveBeenCalledWith('merged-pr-count', 1);
     });
     
     test('should filter out multi-dependency PRs if any dependency is in ignored dependencies list', async () => {
@@ -467,11 +495,14 @@ describe('run', () => {
         return defaultInputs[name] || '';
       });
       
-      await run();
+      const result = await run();
       
       expect(mockOctokit.rest.pulls.list).toHaveBeenCalled();
       expect(mockOctokit.rest.pulls.merge).not.toHaveBeenCalled();
       expect(core.info).toHaveBeenCalledWith(expect.stringContaining('No pull requests passed the filters'));
+
+      expect(result).toBe(0);
+      expect(core.setOutput).toHaveBeenCalledWith('merged-pr-count', 0);
     });
     
     test('should filter out multi-dependency PRs if any dependency version is in ignored versions list', async () => {
@@ -510,11 +541,14 @@ describe('run', () => {
         return defaultInputs[name] || '';
       });
       
-      await run();
+      const result = await run();
       
       expect(mockOctokit.rest.pulls.list).toHaveBeenCalled();
       expect(mockOctokit.rest.pulls.merge).not.toHaveBeenCalled();
       expect(core.info).toHaveBeenCalledWith(expect.stringContaining('No pull requests passed the filters'));
+
+      expect(result).toBe(0);
+      expect(core.setOutput).toHaveBeenCalledWith('merged-pr-count', 0);
     });
     
     test('should filter out multi-dependency PRs if any dependency has a semver level not in the filter', async () => {
@@ -553,11 +587,14 @@ describe('run', () => {
         return defaultInputs[name] || '';
       });
       
-      await run();
+      const result = await run();
       
       expect(mockOctokit.rest.pulls.list).toHaveBeenCalled();
       expect(mockOctokit.rest.pulls.merge).not.toHaveBeenCalled();
       expect(core.info).toHaveBeenCalledWith(expect.stringContaining('No pull requests passed the filters'));
+
+      expect(result).toBe(0);
+      expect(core.setOutput).toHaveBeenCalledWith('merged-pr-count', 0);
     });
     
     test('should correctly process workflow summary', async () => {
@@ -591,7 +628,7 @@ describe('run', () => {
         };
       });
       
-      await run();
+      const result = await run();
       
       // Verify the summary was handled properly - should check for successful execution, not specific content
       expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledTimes(1);
@@ -600,7 +637,10 @@ describe('run', () => {
           pull_number: 1
         })
       );
-      
+
+      expect(result).toBe(1);
+      expect(core.setOutput).toHaveBeenCalledWith('merged-pr-count', 1);
+
       // Clean up environment
       delete process.env.GITHUB_STEP_SUMMARY;
     });
@@ -654,7 +694,7 @@ describe('run', () => {
       }
     });
     
-    await run();
+    const result = await run();
     
     // Should merge both PRs (PR #1 on first try, PR #2 on retry)
     expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledTimes(3); // PR #1 once, PR #2 twice (fail + retry)
@@ -669,6 +709,9 @@ describe('run', () => {
     expect(core.info).toHaveBeenCalledWith(
       expect.stringContaining('Successfully merged PR #2 on retry')
     );
+
+    expect(result).toBe(2);
+    expect(core.setOutput).toHaveBeenCalledWith('merged-pr-count', 2);
   });
   
   test('should skip PR that becomes non-mergeable after base branch modification', async () => {
@@ -732,7 +775,7 @@ describe('run', () => {
       }
     });
     
-    await run();
+    const result = await run();
     
     // Should merge PR #1 successfully, attempt PR #2 once (which fails and doesn't retry due to non-mergeable state)
     expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledTimes(2);
@@ -744,6 +787,128 @@ describe('run', () => {
     expect(core.warning).toHaveBeenCalledWith(
       expect.stringContaining('PR #2 is no longer mergeable after base branch modification. Skipping.')
     );
+
+    expect(result).toBe(1);
+    expect(core.setOutput).toHaveBeenCalledWith('merged-pr-count', 1);
   });
+  });
+
+  describe('Number of merged PRs functionality', () => {
+    test('should return 1 and set output to 1 when one PR is successfully merged', async () => {
+      // Setup mocks with a single mergeable PR
+      mockOctokit.rest.pulls.list.mockResolvedValue({
+        data: [
+          {
+            number: 1,
+            title: 'Bump axios from 0.21.0 to 0.21.1',
+            user: { login: 'dependabot[bot]' },
+            created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
+            head: { sha: 'abc123' },
+            mergeable: true,
+            mergeable_state: 'clean'
+          }
+        ]
+      });
+
+      const result = await run();
+
+      expect(result).toBe(1);
+      expect(core.setOutput).toHaveBeenCalledWith('merged-pr-count', 1);
+      expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledTimes(1);
+    });
+
+    test('should return 3 and set output to 3 when three PRs are successfully merged', async () => {
+      // Setup mocks with three mergeable PRs
+      mockOctokit.rest.pulls.list.mockResolvedValue({
+        data: [
+          {
+            number: 1,
+            title: 'Bump axios from 0.21.0 to 0.21.1',
+            user: { login: 'dependabot[bot]' },
+            created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
+            head: { sha: 'abc123' },
+            mergeable: true,
+            mergeable_state: 'clean'
+          },
+          {
+            number: 2,
+            title: 'Bump express from 4.17.1 to 4.17.2',
+            user: { login: 'dependabot[bot]' },
+            created_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+            head: { sha: 'def456' },
+            mergeable: true,
+            mergeable_state: 'clean'
+          },
+          {
+            number: 3,
+            title: 'Bump morgan from 1.10.0 to 1.10.1',
+            user: { login: 'dependabot[bot]' },
+            created_at: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString(),
+            head: { sha: 'ghi789' },
+            mergeable: true,
+            mergeable_state: 'clean'
+          }
+        ]
+      });
+
+      const result = await run();
+
+      expect(result).toBe(3);
+      expect(core.setOutput).toHaveBeenCalledWith('merged-pr-count', 3);
+      expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledTimes(3);
+    });
+
+    test('should return 2 and set output to 2 when two PRs are merged and one fails', async () => {
+      // Setup mocks with three PRs
+      mockOctokit.rest.pulls.list.mockResolvedValue({
+        data: [
+          {
+            number: 1,
+            title: 'Bump axios from 0.21.0 to 0.21.1',
+            user: { login: 'dependabot[bot]' },
+            created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
+            head: { sha: 'abc123' },
+            mergeable: true,
+            mergeable_state: 'clean'
+          },
+          {
+            number: 2,
+            title: 'Bump express from 4.17.1 to 4.17.2',
+            user: { login: 'dependabot[bot]' },
+            created_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+            head: { sha: 'def456' },
+            mergeable: true,
+            mergeable_state: 'clean'
+          },
+          {
+            number: 3,
+            title: 'Bump morgan from 1.10.0 to 1.10.1',
+            user: { login: 'dependabot[bot]' },
+            created_at: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString(),
+            head: { sha: 'ghi789' },
+            mergeable: true,
+            mergeable_state: 'clean'
+          }
+        ]
+      });
+
+      // First two PRs merge successfully, third PR fails
+      mockOctokit.rest.pulls.merge.mockImplementation(({ pull_number }) => {
+        if (pull_number === 1 || pull_number === 2) {
+          return Promise.resolve();
+        } else if (pull_number === 3) {
+          return Promise.reject(new Error('PR #3 merge conflict'));
+        }
+      });
+
+      const result = await run();
+
+      expect(result).toBe(2);
+      expect(core.setOutput).toHaveBeenCalledWith('merged-pr-count', 2);
+      expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledTimes(3);
+      expect(core.info).toHaveBeenCalledWith(expect.stringContaining('Successfully merged PR #1'));
+      expect(core.info).toHaveBeenCalledWith(expect.stringContaining('Successfully merged PR #2'));
+      expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('Failed to merge PR #3'));
+    });
   });
 });

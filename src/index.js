@@ -47,7 +47,8 @@ async function run() {
     let filteredPRs = [];
     let inBlackoutPeriod = false;
     let initialPRs = [];
-    
+    let mergedPRCount = 0;
+
     // Check if the action should run at the current time
     if (!shouldRunAtCurrentTime(blackoutPeriods)) {
       inBlackoutPeriod = true;
@@ -69,13 +70,15 @@ async function run() {
         
         if (currentRef !== defaultBranch) {
           core.warning(`Action is not running from the default branch (${repo.default_branch}). Current ref: ${currentRef}. Skipping execution for security reasons.`);
-          return;
+          core.setOutput('merged-pr-count', 0);
+          return 0;
         }
         
         core.info(`Action is running from the default branch (${repo.default_branch}). Proceeding with execution.`);
       } catch (error) {
         core.warning(`Failed to verify default branch: ${error.message}. Skipping execution for security reasons.`);
-        return;
+        core.setOutput('merged-pr-count', 0);
+        return 0;
       }
       
       // Find potential PRs to merge
@@ -116,7 +119,8 @@ async function run() {
                 });
                 
                 core.info(`Successfully merged PR #${pr.number}`);
-                
+                mergedPRCount++;
+
                 // Add a delay after successful merge to allow GitHub to process the changes
                 // This helps prevent race conditions with subsequent PRs
                 if (retryDelayMs > 0) {
@@ -152,7 +156,8 @@ async function run() {
                   });
                   
                   core.info(`Successfully merged PR #${pr.number} on retry`);
-                  
+                  mergedPRCount++;
+
                   // Add a delay after successful merge
                   if (retryDelayMs > 0) {
                     core.debug(`Waiting ${retryDelayMs}ms after merge to allow GitHub to process changes`);
@@ -189,13 +194,15 @@ async function run() {
     // Always add workflow summary at the end with the final state
     await addWorkflowSummary(pullRequests, filteredPRs, filterOptions, initialPRs);
     
-    // If we're in a blackout period or have no PRs to merge, we can return early
-    if (inBlackoutPeriod || pullRequests.length === 0 || filteredPRs.length === 0) {
-      return;
-    }
-    
+    // Set the output for the number of merged PRs
+    core.setOutput('merged-pr-count', mergedPRCount);
+
+    return mergedPRCount;
+
   } catch (error) {
     core.setFailed(`Action failed: ${error.message}`);
+    core.setOutput('merged-pr-count', 0);
+    return 0;
   }
 }
 

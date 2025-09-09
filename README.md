@@ -22,6 +22,7 @@ This tool can be used in two ways:
 - Filter based on semantic versioning levels (major, minor, patch)
 - Robust version comparison using the official semver npm package
 - Detailed workflow summary with dependency decisions and PR status
+- Returns the number of merged PRs as the action output
 
 ## Inputs
 
@@ -172,6 +173,7 @@ jobs:
 6. Creates a detailed workflow summary showing which PRs will be merged and which were filtered out
 7. Eligible pull requests are automatically merged using the specified merge method
 8. In case of a merge conflict or other issues, the action will retry up to 3 times with a delay between attempts
+9. Returns the number of successfully merged pull requests as the action output `merged-pr-count` (0 is returned on error)
 
 ## Workflow Summary
 
