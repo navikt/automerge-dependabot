@@ -206,7 +206,21 @@ async function run() {
 
 // Run the action
 if (require.main === module) {
-  run();
+  (async () => {
+    try {
+      const mergedPRCount = await run();
+      if (process.env.GITHUB_ACTIONS) {
+        core.info(`Action finished. Merged ${mergedPRCount} PR(s).`);
+      }
+    } catch (error) {
+      if (process.env.GITHUB_ACTIONS) {
+        core.setFailed(`Action failed with an unhandled error: ${error.message}`);
+      } else {
+        console.error('Action failed with an unhandled error:', error);
+        process.exit(1);
+      }
+    }
+  })();
 }
 
 // Export for testing
