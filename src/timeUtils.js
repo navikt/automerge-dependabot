@@ -325,6 +325,30 @@ function isInBlackoutPeriod(currentTime, period) {
     }
   }
   
+  // Handle single day format: "May 1", "Jul 14", etc. Must be three-character month followed by 1-2 digit day
+  const singleDayMatch = period.match(/^(\w{3})\s+(\d{1,2})$/i);
+  if (singleDayMatch) {
+    const monthNames = {
+      'jan': 0, 'feb': 1, 'mar': 2, 'apr': 3, 'may': 4, 'jun': 5,
+      'jul': 6, 'aug': 7, 'sep': 8, 'oct': 9, 'nov': 10, 'dec': 11
+    };
+
+    const monthName = singleDayMatch[1].toLowerCase();
+    const dayNumber = parseInt(singleDayMatch[2], 10);
+
+    if (Object.prototype.hasOwnProperty.call(monthNames, monthName)) {
+      const monthIndex = monthNames[monthName];
+      const currentMonth = currentTime.getMonth();
+      const currentDay = currentTime.getDate();
+
+      // Check if current date matches the specified month and day (year-agnostic)
+      return currentMonth === monthIndex && currentDay === dayNumber;
+    } else {
+      core.warning(`Invalid month name in single day period: ${period}`);
+      return false;
+    }
+  }
+
   // Handle day of week format: "Mon,Tue,Wed"
   const dayOfWeekMatch = /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat)$/i.test(period);
   if (dayOfWeekMatch) {
