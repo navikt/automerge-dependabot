@@ -1,6 +1,6 @@
 const core = require('@actions/core');
 const github = require('@actions/github');
-const { findMergeablePRs } = require('./pullRequests');
+const { findMergeablePRs, approvePullRequest } = require('./pullRequests');
 const { shouldRunAtCurrentTime } = require('./timeUtils');
 const { applyFilters } = require('./filters');
 const { addWorkflowSummary } = require('./summary');
@@ -33,6 +33,7 @@ async function run() {
     const semverFilter = core.getInput('semver-filter');
     const mergeMethod = core.getInput('merge-method');
     const retryDelayMs = parseInt(core.getInput('retry-delay-ms'), 10) || 10000;
+    const autoApprove = core.getInput('auto-approve') === 'true';
     
     // Prepare filter options - we'll use this regardless of whether we're in a blackout period
     const filterOptions = {
@@ -105,6 +106,23 @@ async function run() {
         } else {
           // Merge eligible PRs
           for (const pr of filteredPRs) {
+
+            // Auto-approve if enabled
+              if (autoApprove) {
+                const approved = await approvePullRequest(
+                  octokit,
+                  context.repo.owner,
+                  context.repo.repo,
+                  pr.number
+                );
+                if (!approved) {
+                  core.warning(
+                    `Skipping merge of PR #${pr.number} due to approval failure`
+                  );
+                  continue;
+                }
+              }
+              
             try {
               core.info(`Attempting to merge PR #${pr.number}: ${pr.title}`);
               

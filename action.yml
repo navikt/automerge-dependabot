@@ -40,6 +40,10 @@ inputs:
     description: Delay in milliseconds between retries when checking PR mergeability. Lower values speed up tests, higher values provide more robustness.
     required: false
     default: '2000'
+  auto-approve:
+    description: Whether to automatically approve PRs before merging them
+    required: false
+    default: 'false'  
 
 outputs:
   merged-pr-count:

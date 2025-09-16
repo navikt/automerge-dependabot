@@ -17,7 +17,8 @@ describe('run', () => {
         list: jest.fn(),
         get: jest.fn(),
         listCommits: jest.fn(),
-        listReviews: jest.fn()
+        listReviews: jest.fn(),
+        createReview: jest.fn()
       },
       repos: {
         getCombinedStatusForRef: jest.fn(),
@@ -48,6 +49,7 @@ describe('run', () => {
     'semver-filter': '',
     'merge-method': 'merge',
     'retry-delay-ms': '20',
+    'auto-approve': 'false',
   };
 
   beforeEach(() => {
@@ -911,4 +913,184 @@ describe('run', () => {
       expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('Failed to merge PR #3'));
     });
   });
+
+  test('should approve PR before merging when auto-approve is enabled', async () => {
+      // Set auto-approve to true
+      core.getInput = jest.fn((name) => {
+        if (name === 'auto-approve') return 'true';
+        return defaultInputs[name] || '';
+      });
+
+      // Mock successful approval
+      mockOctokit.rest.pulls.createReview.mockResolvedValue({});
+
+      const result = await run();
+
+      // Verify approval was called
+      expect(mockOctokit.rest.pulls.createReview).toHaveBeenCalledWith({
+        owner: 'owner',
+        repo: 'repo',
+        pull_number: 1,
+        event: 'APPROVE',
+      });
+
+      // Verify merge still happened
+      expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledTimes(1);
+      expect(result).toBe(1);
+    });
+
+    test('should skip merge when approval fails', async () => {
+      // Set auto-approve to true
+      core.getInput = jest.fn((name) => {
+        if (name === 'auto-approve') return 'true';
+        return defaultInputs[name] || '';
+      });
+
+      // Mock failed approval
+      mockOctokit.rest.pulls.createReview.mockRejectedValue(
+        new Error('Approval failed')
+      );
+
+      const result = await run();
+
+      // Verify approval was attempted
+      expect(mockOctokit.rest.pulls.createReview).toHaveBeenCalledWith({
+        owner: 'owner',
+        repo: 'repo',
+        pull_number: 1,
+        event: 'APPROVE',
+      });
+
+      // Verify merge was NOT called
+      expect(mockOctokit.rest.pulls.merge).not.toHaveBeenCalled();
+
+      // Verify warning was logged
+      expect(core.warning).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'Skipping merge of PR #1 due to approval failure'
+        )
+      );
+
+      expect(result).toBe(0);
+    });
+
+    test('should not attempt approval when auto-approve is disabled', async () => {
+      // Auto-approve is false by default
+      const result = await run();
+
+      // Verify approval was NOT called
+      expect(mockOctokit.rest.pulls.createReview).not.toHaveBeenCalled();
+
+      // Verify merge still happened
+      expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledTimes(1);
+      expect(result).toBe(1);
+    });
+
+    test('should handle mixed approval success/failure with multiple PRs', async () => {
+      // Set up multiple PRs
+      mockOctokit.rest.pulls.list.mockResolvedValue({
+        data: [
+          { 
+            number: 1, 
+            title: 'Bump lodash from 4.17.20 to 4.17.21',
+            user: { login: 'dependabot[bot]' },
+            created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
+            head: { sha: 'abc123' },
+            mergeable: true,
+            mergeable_state: 'clean'
+          },
+          { 
+            number: 2, 
+            title: 'Bump axios from 0.21.1 to 0.21.4',
+            user: { login: 'dependabot[bot]' },
+            created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
+            head: { sha: 'def456' },
+            mergeable: true,
+            mergeable_state: 'clean'
+          }
+        ]
+      });
+
+      // Set auto-approve to true
+      core.getInput = jest.fn(name => {
+        if (name === 'auto-approve') return 'true';
+        return defaultInputs[name] || '';
+      });
+
+      // Mock approval: succeed for PR 1, fail for PR 2
+      mockOctokit.rest.pulls.createReview
+        .mockResolvedValueOnce({}) // PR 1 approval succeeds
+        .mockRejectedValueOnce(new Error('Approval failed')); // PR 2 approval fails
+
+      const result = await run();
+
+      // Verify both approvals were attempted
+      expect(mockOctokit.rest.pulls.createReview).toHaveBeenCalledTimes(2);
+      
+      // Verify only PR 1 was merged (PR 2 was skipped due to approval failure)
+      expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledTimes(1);
+      expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledWith({
+        owner: 'owner',
+        repo: 'repo',
+        pull_number: 1,
+        merge_method: 'merge'
+      });
+
+      // Verify warning for skipped PR
+      expect(core.warning).toHaveBeenCalledWith(
+        expect.stringContaining('Skipping merge of PR #2 due to approval failure')
+      );
+
+      expect(result).toBe(1);
+    });
+
+    test('should handle approval with retry logic when base branch changes', async () => {
+      // Set auto-approve to true
+      core.getInput = jest.fn(name => {
+        if (name === 'auto-approve') return 'true';
+        return defaultInputs[name] || '';
+      });
+
+      // Mock successful approval
+      mockOctokit.rest.pulls.createReview.mockResolvedValue({});
+
+      // Mock merge to fail first time (base branch modified), then succeed
+      mockOctokit.rest.pulls.merge
+        .mockRejectedValueOnce(new Error('Base branch was modified. Review and try the merge again.'))
+        .mockResolvedValueOnce();
+
+      const result = await run();
+
+      // Verify approval was called once
+      expect(mockOctokit.rest.pulls.createReview).toHaveBeenCalledTimes(1);
+      
+      // Verify merge was attempted twice (original + retry)
+      expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledTimes(2);
+      
+      expect(result).toBe(1);
+    });
+
+    test('should not duplicate approvals when retrying merge', async () => {
+      // Set auto-approve to true
+      core.getInput = jest.fn(name => {
+        if (name === 'auto-approve') return 'true';
+        return defaultInputs[name] || '';
+      });
+
+      // Mock successful approval
+      mockOctokit.rest.pulls.createReview.mockResolvedValue({});
+
+      // Mock merge to fail first time, then succeed
+      mockOctokit.rest.pulls.merge
+        .mockRejectedValueOnce(new Error('Base branch was modified'))
+        .mockResolvedValueOnce();
+
+      const result = await run();
+
+      // Critical: approval should only happen ONCE, not on retry
+      expect(mockOctokit.rest.pulls.createReview).toHaveBeenCalledTimes(1);
+      expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledTimes(2);
+      
+      expect(result).toBe(1);
+    });
 });
