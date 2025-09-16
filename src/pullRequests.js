@@ -418,12 +418,12 @@ async function approvePullRequest(octokit, owner, repo, pullNumber) {
       owner,
       repo,
       pull_number: pullNumber,
-      event: "APPROVE",
+      event: 'APPROVE'
     });
-    core.info(`✅ Approved PR #${pullNumber}`);
+    core.info(`Approved PR #${pullNumber}`);
     return true;
   } catch (error) {
-    core.warning(`❌ Failed to approve PR #${pullNumber}: ${error.message}`);
+    core.warning(`Failed to approve PR #${pullNumber}: ${error.message}`);
     return false;
   }
 }
