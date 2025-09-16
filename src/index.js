@@ -107,22 +107,22 @@ async function run() {
           // Merge eligible PRs
           for (const pr of filteredPRs) {
 
-            // Auto-approve if enabled
-              if (autoApprove) {
-                const approved = await approvePullRequest(
-                  octokit,
-                  context.repo.owner,
-                  context.repo.repo,
-                  pr.number
-                );
-                if (!approved) {
-                  core.warning(
-                    `Skipping merge of PR #${pr.number} due to approval failure`
-                  );
-                  continue;
-                }
-              }
-              
+          // Auto-approve if enabled
+          if (autoApprove) {
+            const approved = await approvePullRequest(
+              octokit,
+              context.repo.owner,
+              context.repo.repo,
+              pr.number
+            );
+            if (!approved) {
+              core.warning(
+                `Skipping merge of PR #${pr.number} due to approval failure`
+              );
+              continue;
+            }
+          }
+
             try {
               core.info(`Attempting to merge PR #${pr.number}: ${pr.title}`);
               
