@@ -1,2 +1,3 @@
 npm run lint
 npm run test
+echo 'Remember to build and commit new index if you want changes to be reflected in the action'
