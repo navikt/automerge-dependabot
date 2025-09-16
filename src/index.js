@@ -1,6 +1,6 @@
 const core = require('@actions/core');
 const github = require('@actions/github');
-const { findMergeablePRs } = require('./pullRequests');
+const { findMergeablePRs, approvePullRequest } = require('./pullRequests');
 const { shouldRunAtCurrentTime } = require('./timeUtils');
 const { applyFilters } = require('./filters');
 const { addWorkflowSummary } = require('./summary');
@@ -10,7 +10,7 @@ async function run() {
     // Get inputs
     const tokenInput = core.getInput('token');
     let token = tokenInput;
-    
+
     // Check if the input is referencing an environment variable
     if (tokenInput.startsWith('$')) {
       const envVarName = tokenInput.substring(1);
@@ -20,11 +20,11 @@ async function run() {
         throw new Error(`GitHub token not provided or found in environment variable ${envVarName}`);
       }
     }
-    
+
     if (!token) {
       throw new Error('GitHub token not provided');
     }
-    
+
     const minimumAgeInDays = parseInt(core.getInput('minimum-age-of-pr'), 10);
     const blackoutPeriods = core.getInput('blackout-periods');
     const ignoredDependencies = core.getInput('ignored-dependencies');
@@ -33,6 +33,7 @@ async function run() {
     const semverFilter = core.getInput('semver-filter');
     const mergeMethod = core.getInput('merge-method');
     const retryDelayMs = parseInt(core.getInput('retry-delay-ms'), 10) || 10000;
+    const autoApprove = core.getInput('auto-approve') === 'true';
     
     // Prepare filter options - we'll use this regardless of whether we're in a blackout period
     const filterOptions = {
@@ -41,7 +42,7 @@ async function run() {
       ignoredVersions: ignoredVersions ? ignoredVersions.split(',').map(v => v.trim()) : [],
       semverFilter: semverFilter ? semverFilter.split(',').map(s => s.trim()) : ['patch', 'minor']
     };
-    
+
     // Initialize variables for PR processing
     let pullRequests = [];
     let filteredPRs = [];
@@ -51,46 +52,46 @@ async function run() {
     // Check if the action should run at the current time
     if (!shouldRunAtCurrentTime(blackoutPeriods)) {
       core.info('Action is in a blackout period. Skipping execution.');
-    } else {      
+    } else {
       // Create octokit client
       const octokit = github.getOctokit(token);
       const context = github.context;
-      
+
       // Check if running from default branch for security
       try {
         const { data: repo } = await octokit.rest.repos.get({
           owner: context.repo.owner,
           repo: context.repo.repo
         });
-        
+
         const currentRef = context.ref;
         const defaultBranch = `refs/heads/${repo.default_branch}`;
-        
+
         if (currentRef !== defaultBranch) {
           core.warning(`Action is not running from the default branch (${repo.default_branch}). Current ref: ${currentRef}. Skipping execution for security reasons.`);
           core.setOutput('merged-pr-count', 0);
           return 0;
         }
-        
+
         core.info(`Action is running from the default branch (${repo.default_branch}). Proceeding with execution.`);
       } catch (error) {
         core.warning(`Failed to verify default branch: ${error.message}. Skipping execution for security reasons.`);
         core.setOutput('merged-pr-count', 0);
         return 0;
       }
-      
+
       // Find potential PRs to merge
       const result = await findMergeablePRs(
-        octokit, 
-        context.repo.owner, 
-        context.repo.repo, 
+        octokit,
+        context.repo.owner,
+        context.repo.repo,
         minimumAgeInDays,
         retryDelayMs
       );
-      
+
       pullRequests = result.eligiblePRs;
       initialPRs = result.initialPRs;
-      
+
       if (pullRequests.length === 0) {
         core.info('No eligible pull requests found for automerging.');
       } else {
@@ -99,7 +100,7 @@ async function run() {
           pullRequests, 
           filterOptions
         );
-        
+
         if (filteredPRs.length === 0) {
           core.info('No pull requests passed the filters for automerging.');
         } else {
@@ -107,7 +108,23 @@ async function run() {
           for (const pr of filteredPRs) {
             try {
               core.info(`Attempting to merge PR #${pr.number}: ${pr.title}`);
-              
+
+              // Auto-approve if enabled
+              if (autoApprove) {
+                const approved = await approvePullRequest(
+                  octokit,
+                  context.repo.owner,
+                  context.repo.repo,
+                  pr.number
+                );
+                if (!approved) {
+                  core.warning(
+                    `Skipping merge of PR #${pr.number} due to approval failure`
+                  );
+                  continue;
+                }
+              }
+
               try {
                 await octokit.rest.pulls.merge({
                   owner: context.repo.owner,
@@ -115,7 +132,7 @@ async function run() {
                   pull_number: pr.number,
                   merge_method: mergeMethod
                 });
-                
+
                 core.info(`Successfully merged PR #${pr.number}`);
                 mergedPRCount++;
 
@@ -128,22 +145,22 @@ async function run() {
                 
               } catch (mergeError) {
                 // Check if this is a "base branch was modified" error that we can retry
-                const isBaseBranchModifiedError = 
-                  mergeError.message && 
+                const isBaseBranchModifiedError =
+                  mergeError.message &&
                   mergeError.message.toLowerCase().includes('base branch was modified');
-                
+
                 if (isBaseBranchModifiedError) {
                   core.warning(`PR #${pr.number} failed due to base branch modification. Re-verifying mergeability and retrying...`);
-                  
+
                   // Re-verify PR mergeability after base branch modification
                   const { checkPRMergeability } = require('./pullRequests');
                   const currentPRDetails = await checkPRMergeability(octokit, context.repo.owner, context.repo.repo, pr.number, retryDelayMs);
-                  
+
                   if (!currentPRDetails || !currentPRDetails.mergeable) {
                     core.warning(`PR #${pr.number} is no longer mergeable after base branch modification. Skipping.`);
                     continue;
                   }
-                  
+
                   // Retry the merge
                   core.info(`Retrying merge for PR #${pr.number} after re-verification`);
                   await octokit.rest.pulls.merge({
@@ -152,7 +169,7 @@ async function run() {
                     pull_number: pr.number,
                     merge_method: mergeMethod
                   });
-                  
+
                   core.info(`Successfully merged PR #${pr.number} on retry`);
                   mergedPRCount++;
 
@@ -163,20 +180,20 @@ async function run() {
                   }
                 } else {
                   // Check for merge queue warnings in the error message
-                  const isMergeQueueError = 
+                  const isMergeQueueError =
                     (mergeError.message && (
                       mergeError.message.toLowerCase().includes('merge queue') || 
                       mergeError.message.toLowerCase().includes('branch protection') ||
                       mergeError.message.toLowerCase().includes('required status check')
                     )) ||
                     (mergeError.status === 405 || mergeError.status === 422);
-                  
+
                   // If this appears to be a merge queue error and merge method isn't 'merge'
                   if (isMergeQueueError && mergeMethod !== 'merge') {
                     core.warning(`PR #${pr.number} may require a merge queue, but merge method is set to '${mergeMethod}'. Only 'merge' method is supported with merge queues.`);
                     core.warning('To use merge queues, change the \'merge-method\' input to \'merge\' in your workflow configuration.');
                   }
-                  
+
                   // Always throw the error since we're not handling other types of merge errors
                   throw mergeError;
                 }
@@ -188,10 +205,10 @@ async function run() {
         }
       }
     }
-    
+
     // Always add workflow summary at the end with the final state
     await addWorkflowSummary(pullRequests, filteredPRs, filterOptions, initialPRs);
-    
+
     // Set the output for the number of merged PRs
     core.setOutput('merged-pr-count', mergedPRCount);
 

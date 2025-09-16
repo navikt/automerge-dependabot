@@ -97,6 +97,12 @@ The delay in milliseconds between retries when checking pull request mergeabilit
 
 This setting controls how long the action waits between attempts when verifying if a pull request can be merged. A higher value provides more robust handling of GitHub API rate limits and temporary issues, while a lower value makes the action complete faster.
 
+### `auto-approve`
+
+Whether to automatically approve PRs before merging them. Default: `false`.
+
+When enabled, the action will approve each eligible PR before attempting to merge it. This is useful for repositories that require PR approval even for automated processes. If approval fails for any reason, the PR will be skipped entirely (not merged).
+
 ## Example usage
 
 Basic example:
@@ -152,6 +158,7 @@ jobs:
           always-allow: 'name:aws,github-action-*'
           semver-filter: 'patch'
           merge-method: 'merge'
+          auto-approve: 'true'
 ```
 
 ## How It Works
@@ -171,9 +178,10 @@ jobs:
    - Ignored versions
    - Semantic versioning filters
 6. Creates a detailed workflow summary showing which PRs will be merged and which were filtered out
-7. Eligible pull requests are automatically merged using the specified merge method
-8. In case of a merge conflict or other issues, the action will retry up to 3 times with a delay between attempts
-9. Returns the number of successfully merged pull requests as the action output `merged-pr-count` (0 is returned on error)
+7. If auto-approve is enabled, approves each eligible PR before merging (skips PR if approval fails)
+8. Eligible pull requests are automatically merged using the specified merge method
+9. In case of a merge conflict or other issues, the action will retry up to 3 times with a delay between attempts
+10. Returns the number of successfully merged pull requests as the action output `merged-pr-count` (0 is returned on error)
 
 ## Workflow Summary
 
