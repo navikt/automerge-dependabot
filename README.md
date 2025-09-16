@@ -264,7 +264,12 @@ flowchart TD
     
     EE[Multi-dependency PR] --> FF{"Do ALL dependencies pass filters?"}
     FF -->|No| GG[Skip Entire PR]
-    FF -->|Yes| HH[Merge PR]
+    FF -->|Yes| II{"Is auto-approve enabled?"}
+    II -->|Yes| JJ[Approve PR]
+    JJ --> KK{"Approval successful?"}
+    KK -->|No| LL[Skip PR - Approval Failed]
+    KK -->|Yes| HH[Merge PR]
+    II -->|No| HH
     
     style C fill:#ffe6e6,stroke:#cc0000,stroke-width:2px,color:#000000
     style E fill:#ffe6e6,stroke:#cc0000,stroke-width:2px,color:#000000
@@ -278,6 +283,7 @@ flowchart TD
     style Y fill:#ffe6e6,stroke:#cc0000,stroke-width:2px,color:#000000
     style DD fill:#ffe6e6,stroke:#cc0000,stroke-width:2px,color:#000000
     style GG fill:#ffe6e6,stroke:#cc0000,stroke-width:2px,color:#000000
+    style LL fill:#ffe6e6,stroke:#cc0000,stroke-width:2px,color:#000000
     style AA fill:#e6ffe6,stroke:#009900,stroke-width:2px,color:#000000
     style CC fill:#e6ffe6,stroke:#009900,stroke-width:2px,color:#000000
     style HH fill:#e6ffe6,stroke:#009900,stroke-width:2px,color:#000000
