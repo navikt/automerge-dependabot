@@ -1,3 +1,3 @@
 npm run lint
 npm run test
-echo 'Remember to build and commit new index if you want changes to be reflected in the action'
+echo "Remember to run 'npm run build' before committing if you have made changes to the source code, and want to rebuild the distribution files."
