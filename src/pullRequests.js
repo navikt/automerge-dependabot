@@ -403,10 +403,36 @@ function extractMultipleDependencyInfo(title, body) {
   return [];
 }
 
+/**
+ * Approve a pull request
+ *
+ * @param {Object} octokit - GitHub API client
+ * @param {string} owner - Repository owner
+ * @param {string} repo - Repository name
+ * @param {number} pullNumber - Pull request number
+ * @returns {boolean} True if approval succeeded, false otherwise
+ */
+async function approvePullRequest(octokit, owner, repo, pullNumber) {
+  try {
+    await octokit.rest.pulls.createReview({
+      owner,
+      repo,
+      pull_number: pullNumber,
+      event: 'APPROVE'
+    });
+    core.info(`Approved PR #${pullNumber}`);
+    return true;
+  } catch (error) {
+    core.warning(`Failed to approve PR #${pullNumber}: ${error.message}`);
+    return false;
+  }
+}
+
 module.exports = {
   findMergeablePRs,
   extractDependencyInfo,
   extractMultipleDependencyInfo,
   determineSemverChange,
-  checkPRMergeability
+  checkPRMergeability,
+  approvePullRequest
 };

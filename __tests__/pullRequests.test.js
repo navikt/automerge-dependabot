@@ -1,4 +1,4 @@
-const { findMergeablePRs, extractMultipleDependencyInfo, checkPRMergeability } = require('../src/pullRequests');
+const { findMergeablePRs, extractMultipleDependencyInfo, checkPRMergeability, approvePullRequest } = require('../src/pullRequests');
 const core = require('@actions/core');
 const { setupTestEnvironment, createMockPR } = require('./helpers/mockSetup');
 
@@ -756,6 +756,65 @@ Updates dependency-B from 2.1.0 to 3.0.0
       
       expect(result).toBeNull();
       expect(mockOctokit.rest.pulls.get).toHaveBeenCalledTimes(3); // Initial + 2 retries
+    });
+  });
+
+  describe('approvePullRequest', () => {
+    test('should successfully approve a pull request', async () => {
+      const mockOctokit = {
+        rest: {
+          pulls: {
+            createReview: jest.fn().mockResolvedValue({})
+          }
+        }
+      };
+
+      const result = await approvePullRequest(mockOctokit, 'owner', 'repo', 123);
+
+      expect(result).toBe(true);
+      expect(mockOctokit.rest.pulls.createReview).toHaveBeenCalledWith({
+        owner: 'owner',
+        repo: 'repo',
+        pull_number: 123,
+        event: 'APPROVE'
+      });
+      expect(core.info).toHaveBeenCalledWith('Approved PR #123');
+    });
+
+    test('should handle approval failure', async () => {
+      const mockOctokit = {
+        rest: {
+          pulls: {
+            createReview: jest.fn().mockRejectedValue(new Error('Insufficient permissions'))
+          }
+        }
+      };
+
+      const result = await approvePullRequest(mockOctokit, 'owner', 'repo', 456);
+
+      expect(result).toBe(false);
+      expect(mockOctokit.rest.pulls.createReview).toHaveBeenCalledWith({
+        owner: 'owner',
+        repo: 'repo',
+        pull_number: 456,
+        event: 'APPROVE'
+      });
+      expect(core.warning).toHaveBeenCalledWith('Failed to approve PR #456: Insufficient permissions');
+    });
+
+    test('should handle network errors during approval', async () => {
+      const mockOctokit = {
+        rest: {
+          pulls: {
+            createReview: jest.fn().mockRejectedValue(new Error('Network timeout'))
+          }
+        }
+      };
+
+      const result = await approvePullRequest(mockOctokit, 'owner', 'repo', 789);
+
+      expect(result).toBe(false);
+      expect(core.warning).toHaveBeenCalledWith('Failed to approve PR #789: Network timeout');
     });
   });
 });
