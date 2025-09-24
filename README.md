@@ -62,13 +62,13 @@ Comma-separated list of dependencies to ignore (will not be automerged). Example
 
 Comma-separated list of patterns to always allow regardless of semver changes. This is especially useful for dependencies that don't follow semantic versioning.
 
-- Use `*` to always allow any dependency with non-semver versioning
+- Use `*` to bypass semver filtering for all dependencies
 - Use `name:string` to match dependencies containing a specific string. For example, `name:eslint` would match `eslint`, `eslint-plugin-react`, etc.
 - Use specific package names to always allow specific packages
 - Use package name prefixes to allow all packages that start with that prefix. For example, `no.nav.appsec` would match `no.nav.appsec:contracts`, `no.nav.appsec:core`, etc.
 
 Examples:
-- `*` - Always allow all non-semver dependencies
+- `*` - Always allow all dependencies
 - `name:aws` - Allow all dependencies with "aws" in the name
 - `lodash,express` - Always allow these specific packages
 - `com.example` - Allow all packages starting with "com.example" (like `com.example:core`, `com.example:utils`)
@@ -213,7 +213,7 @@ Some dependencies don't follow standard semantic versioning, using commit hashes
 
    ```yaml
    with:
-     always-allow: '*'  # Allow all non-semver dependencies
+     always-allow: '*'  # Allow all dependencies
    ```
 
    Or target specific dependencies:
