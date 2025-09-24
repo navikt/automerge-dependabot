@@ -270,8 +270,9 @@ async function checkPRMergeability(octokit, owner, repo, pullNumber, retryDelayM
  * @returns {Object} Dependency information
  */
 function extractDependencyInfo(title) {
-  // Expected format: "Bump dependency-name from X.Y.Z to A.B.C"
-  const match = title.match(/Bump ([^ ]+) from ([^ ]+) to ([^ ]+)/);
+  // Expected format: "Bump dependency-name from X.Y.Z to A.B.C", or a conventional-commit variant of this:
+  // "build(deps): bump dependency-name from X.Y.Z to A.B.C"
+  const match = title.match(/(?:B|: b)ump ([^ ]+) from ([^ ]+) to ([^ ]+)/);
   
   if (!match) {
     return {
@@ -306,7 +307,10 @@ function extractMultipleDependencyInfo(title, body) {
   // Look for any format that mentions bumping two dependencies
   // Format 1: "Bump dependency-A and dependency-B in /my-group"
   // Format 2: "Bump cookie and express" (without the "in" part)
-  const matchTwoDeps = title.match(/Bump ([^ ]+) and ([^ ]+)( in ([^ ]+))?/);
+  // or conventional-commit variants of these, e.g.
+  // Format 1: "chore(deps-dev): bump dependency-A and dependency-B in /my-group"
+  // Format 2: "build(deps): bump cookie and express"
+  const matchTwoDeps = title.match(/(?:B|: b)ump ([^ ]+) and ([^ ]+)( in ([^ ]+))?/);
 
   if(matchTwoDeps) {
     // Extract dependency information in the body for each dependency
@@ -334,8 +338,8 @@ function extractMultipleDependencyInfo(title, body) {
   }
 
   // Expected format: "Bump the dependabot-group across X directory with Z updates"
-  // or "Bumps the maven group in /app with 3 updates"
-  const matchDependencyGroup = title.match(/Bump([s]?) the ([^ ]+)( group| across| with| in| updates|[ ]+)+/);
+  // or "Bumps the maven group in /app with 3 updates", or conventional-commit variants of these
+  const matchDependencyGroup = title.match(/(?:B|: b)ump([s]?) the ([^ ]+)( group| across| with| in| updates|[ ]+)+/);
   if (matchDependencyGroup) {
     // First, try to extract dependency information from the markdown table in the PR body
     const tableRegex = /\|\s*([^|\n]+?)\s*\|\s*`?([^`|\n]+)`?\s*\|\s*`?([^`|\n]+)`?\s*\|/g;
