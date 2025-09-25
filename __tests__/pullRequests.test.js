@@ -646,6 +646,30 @@ Updates dependency-B from 2.1.0 to 3.0.0
       expect(result[1].semverChange).toBe('major');
     });
 
+    test('should extract information from "build(deps): bump the X group with 2 updates" format', () => {
+      const title = 'build(deps): bump the all-minor-updates with 2 updates';
+      const body = `Bumps the all-minor-updates group with 2 updates:
+      
+Updates dependency-A from 1.2.3 to 1.3.0
+- [Release notes](https://github.com/org/dependency-A/releases)
+      
+Updates dependency-B from 2.1.0 to 2.1.1
+- [Release notes](https://github.com/org/dependency-B/releases)`;
+
+      const result = extractMultipleDependencyInfo(title, body);
+      expect(result.length).toBe(2);
+
+      expect(result[0].name).toBe('dependency-A');
+      expect(result[0].fromVersion).toBe('1.2.3');
+      expect(result[0].toVersion).toBe('1.3.0');
+      expect(result[0].semverChange).toBe('minor');
+
+      expect(result[1].name).toBe('dependency-B');
+      expect(result[1].fromVersion).toBe('2.1.0');
+      expect(result[1].toVersion).toBe('2.1.1');
+      expect(result[1].semverChange).toBe('patch');
+    });
+
     test('should extract information from table format', () => {
       const title = 'Bump the maven group across / with 6 updates';
       const body = `Bumps the maven group with 6 updates in the / directory:
