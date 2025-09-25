@@ -82,7 +82,7 @@ You can also use a wildcard to ignore all versions of a specific package: `packa
 ### `semver-filter`
 
 Filter based on semantic versioning level changes.
-Comma-separated list of: `major`, `minor`, `patch`. Default: `patch,minor`.
+Comma-separated list of: `major`, `minor`, `patch`, `unknown`. Default: `patch,minor`.
 
 ### `merge-method`
 
