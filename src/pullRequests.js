@@ -189,8 +189,8 @@ async function findMergeablePRs(octokit, owner, repo, minimumAgeInDays, retryDel
     };
 
     // Check if PR title matches multiple dependency pattern
-    const isMultipleDependencyPR = pr.title.match(/Bump([s]?) ([^ ]+) and ([^ ]+)( in ([^ ]+))?/) || 
-                                  pr.title.match(/Bump([s]?) the ([^ ]+)( group| across| with| in| updates|[ ]+)+/);
+    const isMultipleDependencyPR = pr.title.match(/(?:B|: b)ump([s]?) ([^ ]+) and ([^ ]+)( in ([^ ]+))?/) ||
+                                  pr.title.match(/(?:B|: b)ump([s]?) the ([^ ]+)( group| across| with| in| updates|[ ]+)+/);
 
     if (isMultipleDependencyPR) {
       prData.dependencyInfoList = extractMultipleDependencyInfo(pr.title, pr.body);
