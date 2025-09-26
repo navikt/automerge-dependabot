@@ -621,6 +621,84 @@ Updates dependency-B from 2.1.0 to 3.0.0
     expect(result.eligiblePRs[0].dependencyInfoList[1].semverChange).toBe('minor');
   });
 
+  test('should handle PRs with "convential commit"-style titles', async () => {
+    // Mock GitHub API client and responses
+    const mockOctokit = {
+      rest: {
+        pulls: {
+          list: jest.fn().mockResolvedValue({
+            data: [
+              {
+                number: 1,
+                title: 'build(deps): bump the all-minor-updates group with 2 updates',
+                body: `Bumps the all-minor-updates group with 2 updates:
+
+| Package | From | To |
+| --- | --- | --- |
+| [dependency-A](https://github.com/org/dependency-A) | \`1.2.3\` | \`1.3.0\` |
+| [dependency-B](https://github.com/org/dependency-B) | \`2.1.0\` | \`2.1.1\` |
+
+Updates dependency-A from 1.2.3 to 1.3.0
+- [Release notes](https://github.com/org/dependency-A/releases)
+
+Updates dependency-B from 2.1.0 to 2.1.1
+- [Release notes](https://github.com/org/dependency-B/releases)`,
+                user: { login: 'dependabot[bot]' },
+                head: { ref: 'dependabot/maven/maven-group', sha: 'abc123' },
+                created_at: '2025-05-10T10:00:00Z'
+              }
+            ]
+          }),
+          get: jest.fn().mockResolvedValue({
+            data: {
+              number: 1,
+              mergeable: true
+            }
+          }),
+          listCommits: jest.fn().mockResolvedValue({
+            data: [
+              {
+                sha: 'abc123def456',
+                author: { login: 'dependabot[bot]' },
+                committer: { login: 'dependabot[bot]' }
+              }
+            ]
+          }),
+          listReviews: jest.fn().mockResolvedValue({
+            data: []
+          })
+        },
+        repos: {
+          getCombinedStatusForRef: jest.fn().mockResolvedValue({
+            data: { state: 'success' }
+          })
+        }
+      }
+    };
+
+    // Mock current date to ensure deterministic age comparisons
+    const mockDate = new Date('2025-05-12T00:00:00Z');
+    global.Date = class extends Date {
+      constructor(...args) {
+        if (args.length === 0) {
+          return mockDate;
+        }
+        return new originalDate(...args);
+      }
+    };
+
+    const result = await findMergeablePRs(mockOctokit, 'owner', 'repo', 1);
+
+    expect(result.eligiblePRs.length).toBe(1);
+    expect(result.eligiblePRs[0].number).toBe(1);
+    expect(result.eligiblePRs[0].dependencyInfoList).toBeDefined();
+    expect(result.eligiblePRs[0].dependencyInfoList.length).toBe(2);
+    expect(result.eligiblePRs[0].dependencyInfoList[0].name).toBe('dependency-A');
+    expect(result.eligiblePRs[0].dependencyInfoList[0].semverChange).toBe('minor');
+    expect(result.eligiblePRs[0].dependencyInfoList[1].name).toBe('dependency-B');
+    expect(result.eligiblePRs[0].dependencyInfoList[1].semverChange).toBe('patch');
+  });
+
   describe('extractMultipleDependencyInfo', () => {
     test('should extract information from "Bump A and B in directory" format', () => {
       const title = 'Bump dependency-A and dependency-B in /my-group';
