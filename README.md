@@ -32,6 +32,7 @@ This tool can be used in two ways:
 
 The token requires the following permissions:
 - `contents: write` - To allow the merge operation to modify repository contents
+- `pull-requests: read` - To allow the action to find pull-requests
 
 Note: Using GITHUB_TOKEN will not trigger on.push events, recommend using a [github app token](https://github.com/actions/create-github-app-token) & merge-method `merge` to merge as App-login. See example below.
 
@@ -120,9 +121,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write  # Required to merge PRs
+      pull-requests: read # Required for private/internal repos
     steps:
       - name: Automerge Dependabot PRs
-        uses: navikt/automerge-dependabot@v1
+        uses: navikt/automerge-dependabot@v1.2.2
         with:
           token: ${{ github.token }}
           minimum-age-of-pr: '3'
@@ -148,7 +150,7 @@ jobs:
           app-id: ${{ vars.APP_ID }}
           private-key: ${{ secrets.PRIVATE_KEY }}
       - name: Automerge Dependabot PRs
-        uses: navikt/automerge-dependabot@v1
+        uses: navikt/automerge-dependabot@v1.2.2
         with:
           token: ${{ steps.app-token.outputs.token }}
           minimum-age-of-pr: '2'
