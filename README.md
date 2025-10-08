@@ -33,6 +33,7 @@ This tool can be used in two ways:
 The token requires the following permissions:
 - `contents: write` - To allow the merge operation to modify repository contents
 - `pull-requests: read` - To allow the action to find pull-requests
+- `statuses: read` - To allow the action to view commit status for a given ref (mergeability)
 
 Note: Using GITHUB_TOKEN will not trigger on.push events, recommend using a [github app token](https://github.com/actions/create-github-app-token) & merge-method `merge` to merge as App-login. See example below.
 
@@ -122,6 +123,7 @@ jobs:
     permissions:
       contents: write  # Required to merge PRs
       pull-requests: read # Required for private/internal repos
+      statuses: read # Required for private/internal repos
     steps:
       - name: Automerge Dependabot PRs
         uses: navikt/automerge-dependabot@v1.2.2
