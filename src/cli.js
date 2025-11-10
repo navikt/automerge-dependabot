@@ -136,6 +136,7 @@ async function runCli(options) {
     const filterOptions = {
       ignoredDependencies: options.ignoredDependencies ? options.ignoredDependencies.split(',').map(d => d.trim()) : [],
       alwaysAllow: options.alwaysAllow ? options.alwaysAllow.split(',').map(d => d.trim()) : [],
+      alwaysAllowLabels: options.alwaysAllowLabels ? options.alwaysAllowLabels.split(',').map(l => l.trim()) : [],
       ignoredVersions: options.ignoredVersions ? options.ignoredVersions.split(',').map(v => v.trim()) : [],
       semverFilter: options.semverFilter ? options.semverFilter.split(',').map(s => s.trim()) : ['patch', 'minor']
     };
@@ -147,6 +148,9 @@ async function runCli(options) {
     console.log(`   • Semver filter: ${filterOptions.semverFilter.join(', ')}`);
     if (filterOptions.ignoredDependencies.length > 0) {
       console.log(`   • Ignored dependencies: ${filterOptions.ignoredDependencies.join(', ')}`);
+    }
+    if (filterOptions.alwaysAllowLabels.length > 0) {
+      console.log(`   • Always allow labels: ${filterOptions.alwaysAllowLabels.join(', ')}`);
     }
     if (filterOptions.alwaysAllow.length > 0) {
       console.log(`   • Always allow: ${filterOptions.alwaysAllow.join(', ')}`);
@@ -331,6 +335,7 @@ function main() {
     .option('--blackout-periods <periods>', 'Blackout periods when action should not run')
     .option('--ignored-dependencies <deps>', 'Comma-separated list of dependencies to ignore')
     .option('--always-allow <patterns>', 'Comma-separated list of patterns to always allow')
+    .option('--always-allow-labels <labels>', 'Comma-separated list of PR labels that bypass all filters')
     .option('--ignored-versions <versions>', 'Comma-separated list of specific versions to ignore')
     .option('--semver-filter <levels>', 'Semver levels to allow (major,minor,patch,unknown)', 'patch,minor')
     .option('--merge-method <method>', 'Merge method (merge, squash, rebase)', 'merge')
