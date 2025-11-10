@@ -26,6 +26,13 @@ jest.mock('../src/filters', () => ({
       ];
     }
     return null;
+  }),
+  shouldAlwaysAllowByLabel: jest.fn().mockImplementation((prLabels, alwaysAllowLabels) => {
+    if (!prLabels || !alwaysAllowLabels || alwaysAllowLabels.length === 0) {
+      return false;
+    }
+    const prLabelNames = prLabels.map(label => label.name.toLowerCase());
+    return alwaysAllowLabels.some(allowed => prLabelNames.includes(allowed.toLowerCase()));
   })
 }));
 
@@ -362,6 +369,115 @@ describe('addWorkflowSummary', () => {
     expect(summaryContent).toContain('Contains commits from authors other than Dependabot');
 
     // Verify the summary was written
+    expect(mockSummary.write).toHaveBeenCalled();
+  });
+
+  test('should show label information in summary when always-allow-labels is configured', async () => {
+    const allPRs = [
+      {
+        number: 1,
+        html_url: 'https://github.com/owner/repo/pull/1',
+        labels: [
+          { name: 'security' },
+          { name: 'dependencies' }
+        ],
+        dependencyInfo: {
+          name: 'axios',
+          fromVersion: '0.21.0',
+          toVersion: '0.21.2',
+          semverChange: 'patch'
+        }
+      },
+      {
+        number: 2,
+        html_url: 'https://github.com/owner/repo/pull/2',
+        labels: [],
+        dependencyInfo: {
+          name: 'lodash',
+          fromVersion: '4.17.20',
+          toVersion: '4.17.21',
+          semverChange: 'patch'
+        }
+      }
+    ];
+
+    const prsToMerge = allPRs; // Both should be merged
+
+    const filters = {
+      ignoredDependencies: [],
+      alwaysAllow: [],
+      alwaysAllowLabels: ['security', 'automerge'],
+      ignoredVersions: [],
+      semverFilter: ['patch']
+    };
+
+    await addWorkflowSummary(allPRs, prsToMerge, filters, allPRs);
+
+    // Get all the calls to addRaw and combine them
+    const summaryContent = mockSummary.addRaw.mock.calls
+      .map(call => call[0])
+      .join('');
+
+    // Should show Always Allow Labels in the filters table
+    expect(summaryContent).toContain('Always Allow Labels');
+    expect(summaryContent).toContain('security, automerge');
+
+    // Should show PR with label and the reason
+    expect(summaryContent).toContain('[#1]');
+    expect(summaryContent).toContain('axios');
+    expect(summaryContent).toContain('Allowed by label: security');
+
+    // Should show PR without label as passing filters
+    expect(summaryContent).toContain('[#2]');
+    expect(summaryContent).toContain('lodash');
+    expect(summaryContent).toContain('Passed filters');
+
+    // Should have Reason column in the header
+    expect(summaryContent).toContain('| PR | Dependency | Version | Reason |');
+
+    expect(mockSummary.write).toHaveBeenCalled();
+  });
+
+  test('should not show Reason column when no label filtering is configured', async () => {
+    const allPRs = [
+      {
+        number: 1,
+        html_url: 'https://github.com/owner/repo/pull/1',
+        labels: [],
+        dependencyInfo: {
+          name: 'lodash',
+          fromVersion: '4.17.20',
+          toVersion: '4.17.21',
+          semverChange: 'patch'
+        }
+      }
+    ];
+
+    const prsToMerge = allPRs;
+
+    const filters = {
+      ignoredDependencies: [],
+      alwaysAllow: [],
+      alwaysAllowLabels: [], // No label filtering
+      ignoredVersions: [],
+      semverFilter: ['patch']
+    };
+
+    await addWorkflowSummary(allPRs, prsToMerge, filters, allPRs);
+
+    // Get all the calls to addRaw and combine them
+    const summaryContent = mockSummary.addRaw.mock.calls
+      .map(call => call[0])
+      .join('');
+
+    // Should show Always Allow Labels as None
+    expect(summaryContent).toContain('Always Allow Labels');
+    expect(summaryContent).toContain('None');
+
+    // Should NOT have Reason column in the header
+    expect(summaryContent).toContain('| PR | Dependency | Version |');
+    expect(summaryContent).not.toContain('| PR | Dependency | Version | Reason |');
+
     expect(mockSummary.write).toHaveBeenCalled();
   });
 });

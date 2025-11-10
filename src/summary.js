@@ -45,6 +45,7 @@ async function addWorkflowSummary(allPRs, prsToMerge, filters, initialPRs = []) 
     core.summary.addRaw('\n'); // Test to see if this helps with rendering
     core.summary.addRaw(createTableHeader(['Filter Type', 'Value']) + '\n');
     core.summary.addRaw(`| Always Allow | ${filters.alwaysAllow.length > 0 ? filters.alwaysAllow.join(', ') : 'None'} |\n`);
+    core.summary.addRaw(`| Always Allow Labels | ${filters.alwaysAllowLabels && filters.alwaysAllowLabels.length > 0 ? filters.alwaysAllowLabels.join(', ') : 'None'} |\n`);
     core.summary.addRaw(`| Ignored Versions | ${filters.ignoredVersions.length > 0 ? filters.ignoredVersions.join(', ') : 'None'} |\n`);
     core.summary.addRaw(`| Ignored Dependencies | ${filters.ignoredDependencies.length > 0 ? filters.ignoredDependencies.join(', ') : 'None'} |\n`);
     core.summary.addRaw(`| Semver Filter | ${filters.semverFilter.join(', ')} |\n\n`);
@@ -85,28 +86,56 @@ async function addWorkflowSummary(allPRs, prsToMerge, filters, initialPRs = []) 
     if (prsToMerge.length > 0) {
       core.summary.addRaw(createSectionTitle('Pull Requests to Merge') + '\n\n');
       
+      // Check if we need to include label information
+      const hasLabelFiltering = filters.alwaysAllowLabels && filters.alwaysAllowLabels.length > 0;
+      
       // Add the table header first
-      core.summary.addRaw(createTableHeader(['PR', 'Dependency', 'Version']) + '\n');
+      if (hasLabelFiltering) {
+        core.summary.addRaw(createTableHeader(['PR', 'Dependency', 'Version', 'Reason']) + '\n');
+      } else {
+        core.summary.addRaw(createTableHeader(['PR', 'Dependency', 'Version']) + '\n');
+      }
       
       // Add each PR as a separate row
       for (const pr of prsToMerge) {
+        // Check if this PR has an allowed label
+        const { shouldAlwaysAllowByLabel } = require('./filters');
+        const allowedByLabel = hasLabelFiltering && shouldAlwaysAllowByLabel(pr.labels, filters.alwaysAllowLabels);
+        
+        // Determine the reason text
+        let reason = '';
+        if (allowedByLabel && pr.labels) {
+          const matchingLabels = pr.labels
+            .filter(label => filters.alwaysAllowLabels.some(allowed => allowed.toLowerCase() === label.name.toLowerCase()))
+            .map(label => label.name);
+          reason = `Allowed by label: ${matchingLabels.join(', ')}`;
+        } else if (hasLabelFiltering) {
+          reason = 'Passed filters';
+        }
+        
         // For PRs that will be merged, we need to extract dependency info directly
         if (pr.dependencyInfoList && pr.dependencyInfoList.length > 0) {
           // Handle multiple dependencies
           for (const depInfo of pr.dependencyInfoList) {
             if (depInfo.name) {
-              const tableRow = `| [#${pr.number}](${pr.html_url}) | ${depInfo.name} | ${depInfo.toVersion} |`;
+              const tableRow = hasLabelFiltering 
+                ? `| [#${pr.number}](${pr.html_url}) | ${depInfo.name} | ${depInfo.toVersion} | ${reason} |`
+                : `| [#${pr.number}](${pr.html_url}) | ${depInfo.name} | ${depInfo.toVersion} |`;
               core.summary.addRaw(tableRow + '\n');
             }
           }
         } else if (pr.dependencyInfo && pr.dependencyInfo.name) {
           // Handle single dependency
           const depInfo = pr.dependencyInfo;
-          const tableRow = `| [#${pr.number}](${pr.html_url}) | ${depInfo.name} | ${depInfo.toVersion} |`;
+          const tableRow = hasLabelFiltering
+            ? `| [#${pr.number}](${pr.html_url}) | ${depInfo.name} | ${depInfo.toVersion} | ${reason} |`
+            : `| [#${pr.number}](${pr.html_url}) | ${depInfo.name} | ${depInfo.toVersion} |`;
           core.summary.addRaw(tableRow + '\n');
         } else {
           // Fallback if no dependency info is available
-          const tableRow = `| [#${pr.number}](${pr.html_url}) | Unknown | Unknown |`;
+          const tableRow = hasLabelFiltering
+            ? `| [#${pr.number}](${pr.html_url}) | Unknown | Unknown | ${reason} |`
+            : `| [#${pr.number}](${pr.html_url}) | Unknown | Unknown |`;
           core.summary.addRaw(tableRow + '\n');
         }
       }
