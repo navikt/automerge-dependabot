@@ -29,6 +29,7 @@ async function run() {
     const blackoutPeriods = core.getInput('blackout-periods');
     const ignoredDependencies = core.getInput('ignored-dependencies');
     const alwaysAllow = core.getInput('always-allow');
+    const alwaysAllowLabels = core.getInput('always-allow-labels');
     const ignoredVersions = core.getInput('ignored-versions');
     const semverFilter = core.getInput('semver-filter');
     const mergeMethod = core.getInput('merge-method');
@@ -39,6 +40,7 @@ async function run() {
     const filterOptions = {
       ignoredDependencies: ignoredDependencies ? ignoredDependencies.split(',').map(d => d.trim()) : [],
       alwaysAllow: alwaysAllow ? alwaysAllow.split(',').map(d => d.trim()) : [],
+      alwaysAllowLabels: alwaysAllowLabels ? alwaysAllowLabels.split(',').map(l => l.trim()) : [],
       ignoredVersions: ignoredVersions ? ignoredVersions.split(',').map(v => v.trim()) : [],
       semverFilter: semverFilter ? semverFilter.split(',').map(s => s.trim()) : ['patch', 'minor']
     };

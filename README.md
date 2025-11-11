@@ -75,6 +75,19 @@ Examples:
 - `lodash,express` - Always allow these specific packages
 - `com.example` - Allow all packages starting with "com.example" (like `com.example:core`, `com.example:utils`)
 
+### `always-allow-labels`
+
+Comma-separated list of PR labels that will bypass all filters and allow automerging. When a PR has any of these labels, it will be merged regardless of:
+- Semver change level (major, minor, patch)
+- Ignored dependencies list
+- Ignored versions list
+
+Examples:
+- `automerge` - Allow any PR with the "automerge" label
+- `java,test` - Allow PRs with either "java" or "test" labels
+
+**Note:** Label matching is case-insensitive. The label `AutoMerge` will match `automerge` in the configuration.
+
 ### `ignored-versions`
 
 Comma-separated list of specific versions to ignore. Format: `package@version`.
@@ -160,6 +173,7 @@ jobs:
           ignored-dependencies: 'react,react-dom,webpack'
           ignored-versions: 'eslint@8.0.0,lodash@*'
           always-allow: 'name:aws,github-action-*'
+          always-allow-labels: 'security,automerge'
           semver-filter: 'patch'
           merge-method: 'merge'
           auto-approve: 'true'
@@ -178,6 +192,7 @@ jobs:
    - No failing status checks
    - No blocking pull request reviews  
 5. Extracts dependency information and filters based on:
+   - PR labels (if always-allow-labels is configured, PRs with matching labels bypass all other filters)
    - Ignored dependencies
    - Ignored versions
    - Semantic versioning filters

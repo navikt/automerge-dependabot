@@ -185,7 +185,8 @@ async function findMergeablePRs(octokit, owner, repo, minimumAgeInDays, retryDel
     // All checks passed, PR is eligible for auto-merging
     const prData = {
       ...pr,
-      prDetails
+      prDetails,
+      labels: pr.labels || [] // Ensure labels are included
     };
 
     // Check if PR title matches multiple dependency pattern

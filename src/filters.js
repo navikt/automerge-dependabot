@@ -59,6 +59,31 @@ function getAllFilterReasons() {
 }
 
 /**
+ * Check if a PR has any labels that match the always-allow-labels list
+ * 
+ * @param {Array} prLabels - Array of label objects from the PR
+ * @param {Array} alwaysAllowLabelsList - List of label names to always allow
+ * @returns {boolean} Whether the PR has a matching label
+ */
+function shouldAlwaysAllowByLabel(prLabels, alwaysAllowLabelsList) {
+  if (!alwaysAllowLabelsList || alwaysAllowLabelsList.length === 0) {
+    return false;
+  }
+  
+  if (!prLabels || prLabels.length === 0) {
+    return false;
+  }
+  
+  // Extract label names from the PR labels
+  const prLabelNames = prLabels.map(label => label.name.toLowerCase());
+  
+  // Check if any of the PR labels match the always-allow-labels list
+  return alwaysAllowLabelsList.some(allowedLabel => {
+    return prLabelNames.includes(allowedLabel.toLowerCase());
+  });
+}
+
+/**
  * Check if a dependency should always be allowed based on the alwaysAllow list
  * 
  * @param {string} name - The dependency name
@@ -171,12 +196,13 @@ function validateDependency(prNumber, dependencyInfo, filters) {
  * @returns {Array} Filtered pull requests
  */
 function applyFilters(pullRequests, filters) {
-  const { ignoredDependencies, alwaysAllow = [], ignoredVersions, semverFilter } = filters;
+  const { ignoredDependencies, alwaysAllow = [], alwaysAllowLabels = [], ignoredVersions, semverFilter } = filters;
 
   core.info(`Applying filters: ${
     [
       ignoredDependencies.length > 0 ? `Ignored dependencies: ${ignoredDependencies.join(', ')}` : null,
       alwaysAllow.length > 0 ? `Always allow: ${alwaysAllow.join(', ')}` : null,
+      alwaysAllowLabels.length > 0 ? `Always allow labels: ${alwaysAllowLabels.join(', ')}` : null,
       ignoredVersions.length > 0 ? `Ignored versions: ${ignoredVersions.join(', ')}` : null,
       `Semver filter: ${semverFilter.join(', ')}`
     ].filter(Boolean).join('; ')
@@ -189,6 +215,12 @@ function applyFilters(pullRequests, filters) {
       recordFilterReason(pr.number, 'general', reason);
       core.debug(`PR #${pr.number}: Skipping - ${reason}`);
       return false;
+    }
+    
+    // Check if PR has a label that allows it to bypass all filters
+    if (shouldAlwaysAllowByLabel(pr.labels, alwaysAllowLabels)) {
+      core.info(`PR #${pr.number}: Bypassing all filters - has allowed label from: ${alwaysAllowLabels.join(', ')}`);
+      return true;
     }
     
     // Check if PR contains multiple dependencies or a single dependency
@@ -232,6 +264,7 @@ function applyFilters(pullRequests, filters) {
 module.exports = {
   applyFilters,
   shouldAlwaysAllow,
+  shouldAlwaysAllowByLabel,
   getFilterReasons,
   getAllFilterReasons,
   recordFilterReason,

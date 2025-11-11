@@ -1,7 +1,6 @@
 name: Automerge Dependabot Pull Requests
 description: Automatically merge pull requests created by Dependabot with configurable rules and workflow summary
 author: navikt
-version: 1.0.0
 
 branding:
   icon: git-merge
@@ -24,6 +23,9 @@ inputs:
     required: false
   always-allow:
     description: Comma-separated list of patterns to always allow. Use * to always allow all non-semver dependencies, or specify patterns like 'name:string' to match dependencies containing a specific string
+    required: false
+  always-allow-labels:
+    description: Comma-separated list of PR labels that will bypass all filters and allow automerging (e.g., "automerge,dependencies")
     required: false
   ignored-versions:
     description: Comma-separated list of specific versions to ignore (format package@version, e.g., "lodash@4.17.21,axios@0.21.1")
