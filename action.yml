@@ -52,5 +52,5 @@ outputs:
     description: The number of pull requests that were successfully merged during execution
 
 runs:
-  using: node20
+  using: node24
   main: dist/index.js
