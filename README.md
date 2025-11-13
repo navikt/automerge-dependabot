@@ -20,6 +20,7 @@ This tool can be used in two ways:
 - Filters for ignoring specific dependencies
 - Filters for ignoring specific versions of dependencies
 - Filter based on semantic versioning levels (major, minor, patch)
+- Label-based filtering to bypass all filters for specific PRs
 - Robust version comparison using the official semver npm package
 - Detailed workflow summary with dependency decisions and PR status
 - Returns the number of merged PRs as the action output
@@ -183,24 +184,29 @@ jobs:
 
 1. Checks for the presence of token.
 2. Makes sure we are not in a blackout period.
-3. Fetches open pull requests from the repository.
-4. Filters pull requests based on:
+3. Verifies the action is running from the default branch (security check - skips execution if not).
+4. Fetches open pull requests from the repository.
+5. Filters pull requests based on:
    - The pull request author is Dependabot
    - The pull request is within the minimum age
-   - Whether it's mergeable (passing checks, no conflicts)
+   - Whether it's mergeable (passing checks, no conflicts) - retries up to 3 times if state is null
    - Ensures all commits in the PR are from Dependabot
    - No failing status checks
    - No blocking pull request reviews  
-5. Extracts dependency information and filters based on:
-   - PR labels (if always-allow-labels is configured, PRs with matching labels bypass all other filters)
-   - Ignored dependencies
-   - Ignored versions
-   - Semantic versioning filters
-6. Creates a detailed workflow summary showing which PRs will be merged and which were filtered out
-7. If auto-approve is enabled, approves each eligible PR before merging (skips PR if approval fails)
-8. Eligible pull requests are automatically merged using the specified merge method
-9. In case of a merge conflict or other issues, the action will retry up to 3 times with a delay between attempts
-10. Returns the number of successfully merged pull requests as the action output `merged-pr-count` (0 is returned on error)
+6. Extracts dependency information and applies filters:
+   - **First:** Checks if PR has an allowed label (if always-allow-labels is configured) - if yes, bypasses all other filters
+   - Checks if dependency is in ignored-dependencies list
+   - Checks if version is in ignored-versions list
+   - Checks if dependency matches always-allow pattern - if yes, bypasses semver filter
+   - Checks if semver change level is in semver-filter list
+   - For multi-dependency PRs, ALL dependencies must pass filters
+7. Creates a detailed workflow summary showing which PRs will be merged and which were filtered out
+8. For each PR to merge:
+   - If auto-approve is enabled, approves the PR first (skips PR if approval fails)
+   - Attempts to merge using the specified merge method
+   - If merge fails due to base branch modification, re-verifies mergeability and retries once
+   - Waits retry-delay-ms between merges to allow GitHub to process changes
+9. Returns the number of successfully merged pull requests as the action output `merged-pr-count`
 
 ## Workflow Summary
 
@@ -243,82 +249,6 @@ Some dependencies don't follow standard semantic versioning, using commit hashes
    ```
 
 When using multiple dependency PRs (where Dependabot updates several packages at once), the rules apply to each dependency individually. If any dependency doesn't meet your criteria, the entire PR will be skipped.
-
-## Decision Flow
-
-When a Dependabot PR is detected, it goes through this comprehensive filtering and validation process:
-
-```mermaid
-flowchart TD
-    A[Dependabot PR Found] --> B{"Is PR author dependabot?"}
-    B -->|No| C[Skip PR - Security Check Failed]
-    B -->|Yes| D{"Is PR old enough?<br/>minimum-age-of-pr"}
-    D -->|No| E[Skip PR - Too Recent]
-    D -->|Yes| F[Check PR Mergeability]
-    F --> G{"Is mergeable state null?"}
-    G -->|Yes| H[Wait retry-delay-ms]
-    H --> I{"Retry < 3 attempts?"}
-    I -->|Yes| F
-    I -->|No| J[Skip PR - Mergeability Unknown]
-    G -->|No| K{"Is PR mergeable?"}
-    K -->|No| L[Skip PR - Not Mergeable]
-    K -->|Yes| M{"All commits from dependabot?"}
-    M -->|No| N[Skip PR - Security Risk]
-    M -->|Yes| O{"Status checks passing?"}
-    O -->|No| P[Skip PR - Failing Checks]
-    O -->|Yes| Q{"Any blocking reviews?"}
-    Q -->|Yes| R[Skip PR - Blocked Reviews]
-    Q -->|No| S[Extract Dependency Info]
-    S --> T{"Is dependency info complete?<br/>name, toVersion, semverChange"}
-    T -->|No| U[Skip Dependency - Missing Info]
-    T -->|Yes| V{"Is dependency in ignored-dependencies?"}
-    V -->|Yes| W[Skip Dependency - In Ignored List]
-    V -->|No| X{"Is version in ignored-versions?<br/>name@version or name@*"}
-    X -->|Yes| Y[Skip Dependency - Version Ignored]
-    X -->|No| Z{"Does dependency match always-allow pattern?<br/>*, exact match, name:string, prefix"}
-    Z -->|Yes| AA[Merge Dependency - Always Allowed]
-    Z -->|No| BB{"Is semver change level in semver-filter?<br/>major, minor, patch"}
-    BB -->|Yes| CC[Merge Dependency - Semver Allowed]
-    BB -->|No| DD[Skip Dependency - Semver Filtered]
-    
-    EE[Multi-dependency PR] --> FF{"Do ALL dependencies pass filters?"}
-    FF -->|No| GG[Skip Entire PR]
-    FF -->|Yes| II{"Is auto-approve enabled?"}
-    II -->|Yes| JJ[Approve PR]
-    JJ --> KK{"Approval successful?"}
-    KK -->|No| LL[Skip PR - Approval Failed]
-    KK -->|Yes| HH[Merge PR]
-    II -->|No| HH
-    
-    style C fill:#ffe6e6,stroke:#cc0000,stroke-width:2px,color:#000000
-    style E fill:#ffe6e6,stroke:#cc0000,stroke-width:2px,color:#000000
-    style J fill:#ffe6e6,stroke:#cc0000,stroke-width:2px,color:#000000
-    style L fill:#ffe6e6,stroke:#cc0000,stroke-width:2px,color:#000000
-    style N fill:#ffe6e6,stroke:#cc0000,stroke-width:2px,color:#000000
-    style P fill:#ffe6e6,stroke:#cc0000,stroke-width:2px,color:#000000
-    style R fill:#ffe6e6,stroke:#cc0000,stroke-width:2px,color:#000000
-    style U fill:#ffe6e6,stroke:#cc0000,stroke-width:2px,color:#000000
-    style W fill:#ffe6e6,stroke:#cc0000,stroke-width:2px,color:#000000
-    style Y fill:#ffe6e6,stroke:#cc0000,stroke-width:2px,color:#000000
-    style DD fill:#ffe6e6,stroke:#cc0000,stroke-width:2px,color:#000000
-    style GG fill:#ffe6e6,stroke:#cc0000,stroke-width:2px,color:#000000
-    style AA fill:#e6ffe6,stroke:#009900,stroke-width:2px,color:#000000
-    style CC fill:#e6ffe6,stroke:#009900,stroke-width:2px,color:#000000
-    style HH fill:#e6ffe6,stroke:#009900,stroke-width:2px,color:#000000
-    style LL fill:#ffe6e6,stroke:#cc0000,stroke-width:2px,color:#000000
-    style H fill:#fff9e6,stroke:#cc8800,stroke-width:2px,color:#000000
-    style I fill:#fff9e6,stroke:#cc8800,stroke-width:2px,color:#000000
-```
-
-This diagram shows the complete decision flow including:
-- **Initial Security Validation**: Ensures PR is from Dependabot
-- **Age Check**: Verifies PR meets minimum age requirement
-- **Retry Logic**: Up to 3 attempts to determine PR mergeability with configurable delays
-- **Comprehensive PR Validation**: Checks mergeability, commit authors, status checks, and reviews
-- **Dependency Filtering**: Applies ignored dependencies, ignored versions, always-allow patterns, and semver filtering
-- **Multi-dependency Handling**: ALL dependencies must pass filters for the entire PR to be merged
-
-The yellow-highlighted nodes show the retry mechanism that handles GitHub API rate limits and temporary issues when checking PR mergeability.
 
 ## Semantic Version Handling
 
