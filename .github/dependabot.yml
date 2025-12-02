@@ -1,17 +1,11 @@
 version: 2
-registries:
-  npm:
-    type: npm-registry
-    url: https://npm.pkg.github.com/
-    username: x-access-token
-    password: ${{secrets.READER_TOKEN}}
 updates:
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
-      interval: "daily"
-    registries:
-      - "npm"
+      interval: "weekly"
+    cooldown:
+      default-days: 7
     groups:
       npm:
         patterns:
@@ -19,4 +13,6 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "daily"
+      interval: "weekly"
+    cooldown:
+      default-days: 7
