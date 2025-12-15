@@ -36,7 +36,7 @@ The token requires the following permissions:
 - `pull-requests: read` - To allow the action to find pull-requests
 - `statuses: read` - To allow the action to view commit status for a given ref (mergeability)
 
-Note: Using GITHUB_TOKEN will not trigger on.push events, recommend using a [github app token](https://github.com/actions/create-github-app-token) & merge-method `merge` to merge as App-login. See example below.
+Note: Using GITHUB_TOKEN will not trigger on.push events (Ref: [github docs](https://docs.github.com/en/actions/concepts/security/github_token#when-github_token-triggers-workflow-runs)), recommend using a [github app token](https://github.com/actions/create-github-app-token) & merge-method `merge` to merge as App-login. See example below.
 
 ### `minimum-age-of-pr`
 
