@@ -22,14 +22,14 @@
   "author": "navikt",
   "license": "MIT",
   "dependencies": {
-    "@actions/core": "^1.11.1",
+    "@actions/core": "^2.0.1",
     "@actions/github": "^6.0.1",
     "commander": "^14.0.2",
     "semver": "^7.7.3"
   },
   "devDependencies": {
     "@vercel/ncc": "^0.38.4",
-    "eslint": "^9.39.1",
+    "eslint": "^9.39.2",
     "husky": "^9.1.7",
     "jest": "^30.2.0"
   }
