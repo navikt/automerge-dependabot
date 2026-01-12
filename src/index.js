@@ -35,7 +35,7 @@ async function run() {
     const mergeMethod = core.getInput('merge-method');
     const retryDelayMs = parseInt(core.getInput('retry-delay-ms'), 10) || 10000;
     const autoApprove = core.getInput('auto-approve') === 'true';
-    
+    const skipIntermediateCi = core.getInput('skip-intermediate-ci') === 'true';
     // Prepare filter options - we'll use this regardless of whether we're in a blackout period
     const filterOptions = {
       ignoredDependencies: ignoredDependencies ? ignoredDependencies.split(',').map(d => d.trim()) : [],
@@ -107,35 +107,43 @@ async function run() {
           core.info('No pull requests passed the filters for automerging.');
         } else {
           // Merge eligible PRs
-          for (const pr of filteredPRs) {
+          for (let i = 0; i < filteredPRs.length; i++) {
+            const pr = filteredPRs[i];
+            const isLastPR = i === filteredPRs.length - 1;
 
-          // Auto-approve if enabled
-          if (autoApprove) {
-            const approved = await approvePullRequest(
-              octokit,
-              context.repo.owner,
-              context.repo.repo,
-              pr.number
-            );
-            if (!approved) {
-              core.warning(
-                `Skipping merge of PR #${pr.number} due to approval failure`
+            // Auto-approve if enabled
+            if (autoApprove) {
+              const approved = await approvePullRequest(
+                octokit,
+                context.repo.owner,
+                context.repo.repo,
+                pr.number
               );
-              continue;
+              if (!approved) {
+                core.warning(
+                  `Skipping merge of PR #${pr.number} due to approval failure`
+                );
+                continue;
+              }
             }
-          }
 
             try {
               core.info(`Attempting to merge PR #${pr.number}: ${pr.title}`);
               
               try {
-                await octokit.rest.pulls.merge({
+                const mergeParams = {
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   pull_number: pr.number,
-                  merge_method: mergeMethod
-                });
-                
+                  merge_method: mergeMethod,
+                };
+
+                // Add [skip ci] to intermediate PRs if enabled
+                if (skipIntermediateCi && !isLastPR) {
+                  mergeParams.commit_title = `${pr.title} (#${pr.number}) [skip ci]`;
+                  core.info(`Adding [skip ci] to PR #${pr.number} (intermediate PR)`);
+                }
+                await octokit.rest.pulls.merge(mergeParams);
                 core.info(`Successfully merged PR #${pr.number}`);
                 mergedPRCount++;
 
@@ -166,13 +174,20 @@ async function run() {
                   
                   // Retry the merge
                   core.info(`Retrying merge for PR #${pr.number} after re-verification`);
-                  await octokit.rest.pulls.merge({
+                  const retryMergeParams = {
                     owner: context.repo.owner,
                     repo: context.repo.repo,
                     pull_number: pr.number,
-                    merge_method: mergeMethod
-                  });
-                  
+                    merge_method: mergeMethod,
+                  };
+
+                 // Add [skip ci] to intermediate PRs if enabled (same as initial merge)
+                if (skipIntermediateCi && !isLastPR) {
+                  retryMergeParams.commit_title = `${pr.title} (#${pr.number}) [skip ci]`;
+                  core.info(`Adding [skip ci] to PR #${pr.number} retry (intermediate PR)`);
+                }
+
+                  await octokit.rest.pulls.merge(retryMergeParams);
                   core.info(`Successfully merged PR #${pr.number} on retry`);
                   mergedPRCount++;
 

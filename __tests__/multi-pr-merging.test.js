@@ -180,4 +180,183 @@ describe('Handle when base ref changes after merging first PR', () => {
     // Verify workflow summary was called
     expect(mockAddWorkflowSummary).toHaveBeenCalledTimes(1);
   });
+
+  test('should add [skip ci] to intermediate PRs when skip-intermediate-ci is enabled', async () => {
+    const fourDaysAgo = new Date(
+      Date.now() - 4 * 24 * 60 * 60 * 1000
+    ).toISOString();
+
+    // Set up environment with skip-intermediate-ci enabled
+    const result = setupTestEnvironment({
+      inputOverrides: {
+        'retry-delay-ms': '20',
+        'skip-intermediate-ci': 'true',
+      },
+    });
+    const testMockOctokit = result.mockOctokit;
+
+    // Set up three PRs for testing
+    testMockOctokit.rest.pulls.list.mockResolvedValue({
+      data: [
+        createMockPR({
+          number: 1,
+          title: 'Bump lodash from 4.17.20 to 4.17.21',
+          created_at: fourDaysAgo,
+          head: { sha: 'sha1' },
+        }),
+        createMockPR({
+          number: 2,
+          title: 'Bump axios from 0.21.1 to 0.21.4',
+          created_at: fourDaysAgo,
+          head: { sha: 'sha2' },
+        }),
+        createMockPR({
+          number: 3,
+          title: 'Bump express from 4.17.1 to 4.17.2',
+          created_at: fourDaysAgo,
+          head: { sha: 'sha3' },
+        }),
+      ],
+    });
+
+    // Mock successful merges for all PRs
+    testMockOctokit.rest.pulls.merge.mockResolvedValue({});
+
+    // Run the action
+    await run();
+
+    // Verify all three PRs were merged
+    expect(testMockOctokit.rest.pulls.merge).toHaveBeenCalledTimes(3);
+
+    // PR 1 and 2 should have [skip ci] in commit_title (intermediate PRs)
+    expect(testMockOctokit.rest.pulls.merge).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        pull_number: 1,
+        merge_method: 'merge',
+        commit_title: 'Bump lodash from 4.17.20 to 4.17.21 (#1) [skip ci]',
+      })
+    );
+    expect(testMockOctokit.rest.pulls.merge).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        pull_number: 2,
+        merge_method: 'merge',
+        commit_title: 'Bump axios from 0.21.1 to 0.21.4 (#2) [skip ci]',
+      })
+    );
+
+    // PR 3 should NOT have [skip ci] (last PR)
+    expect(testMockOctokit.rest.pulls.merge).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        pull_number: 3,
+        merge_method: 'merge',
+      })
+    );
+
+    // Verify the last PR does NOT have commit_title parameter
+    const lastCallArgs = testMockOctokit.rest.pulls.merge.mock.calls[2][0];
+    expect(lastCallArgs.commit_title).toBeUndefined();
+
+    // Verify info messages about adding [skip ci]
+    expect(core.info).toHaveBeenCalledWith(
+      expect.stringContaining('Adding [skip ci] to PR #1 (intermediate PR)')
+    );
+    expect(core.info).toHaveBeenCalledWith(
+      expect.stringContaining('Adding [skip ci] to PR #2 (intermediate PR)')
+    );
+  });
+
+  test('should add [skip ci] to retry merges for intermediate PRs', async () => {
+    const fourDaysAgo = new Date(
+      Date.now() - 4 * 24 * 60 * 60 * 1000
+    ).toISOString();
+
+    // Set up environment with skip-intermediate-ci enabled
+    const result = setupTestEnvironment({
+      inputOverrides: {
+        'retry-delay-ms': '20',
+        'skip-intermediate-ci': 'true',
+      },
+    });
+    const testMockOctokit = result.mockOctokit;
+
+    // Set up two PRs for testing
+    testMockOctokit.rest.pulls.list.mockResolvedValue({
+      data: [
+        createMockPR({
+          number: 1,
+          title: 'Bump lodash from 4.17.20 to 4.17.21',
+          created_at: fourDaysAgo,
+          head: { sha: 'sha1' },
+        }),
+        createMockPR({
+          number: 2,
+          title: 'Bump axios from 0.21.1 to 0.21.4',
+          created_at: fourDaysAgo,
+          head: { sha: 'sha2' },
+        }),
+      ],
+    });
+
+    let mergeCallCount = 0;
+
+    // Mock merge - PR 1 fails first then succeeds on retry
+    testMockOctokit.rest.pulls.merge.mockImplementation(({ pull_number }) => {
+      mergeCallCount++;
+
+      if (pull_number === 1 && mergeCallCount === 1) {
+        // First attempt at PR 1 fails
+        throw new Error(
+          'Base branch was modified. Review and try the merge again.'
+        );
+      }
+
+      return Promise.resolve();
+    });
+
+    // Mock checkPRMergeability to return mergeable
+    const mockCheckPRMergeability = jest.fn().mockResolvedValue({
+      number: 1,
+      mergeable: true,
+      mergeable_state: 'clean',
+    });
+
+    const pullRequestsModule = require('../src/pullRequests');
+    pullRequestsModule.checkPRMergeability = mockCheckPRMergeability;
+
+    // Run the action
+    await run();
+
+    // Verify: PR 1 (2 calls - initial + retry), PR 2 (1 call)
+    expect(testMockOctokit.rest.pulls.merge).toHaveBeenCalledTimes(3);
+
+    // Both PR 1 calls should have [skip ci] in commit_title since it's intermediate
+    expect(testMockOctokit.rest.pulls.merge).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        pull_number: 1,
+        commit_title: 'Bump lodash from 4.17.20 to 4.17.21 (#1) [skip ci]',
+      })
+    );
+    expect(testMockOctokit.rest.pulls.merge).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        pull_number: 1,
+        commit_title: 'Bump lodash from 4.17.20 to 4.17.21 (#1) [skip ci]',
+      })
+    );
+
+    // PR 2 should NOT have [skip ci] (last PR)
+    expect(testMockOctokit.rest.pulls.merge).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        pull_number: 2,
+      })
+    );
+
+    const lastCallArgs = testMockOctokit.rest.pulls.merge.mock.calls[2][0];
+    expect(lastCallArgs.commit_title).toBeUndefined();
+  });
 });

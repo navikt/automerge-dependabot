@@ -287,18 +287,27 @@ async function runCli(options) {
       console.log('\n💡 Use --no-dry-run to actually merge these PRs.');
     } else {
       console.log(`\n🚀 Merging ${filteredPRs.length} PR(s)...`);
-      
-      for (const pr of filteredPRs) {
+      for (let i = 0; i < filteredPRs.length; i++) {
+        const pr = filteredPRs[i];
+        const isLastPR = i === filteredPRs.length - 1;
+
         try {
           console.log(`\n⏳ Merging PR #${pr.number}: ${pr.title}`);
-          
-          await octokit.rest.pulls.merge({
+          const mergeParams = {
             owner,
             repo,
             pull_number: pr.number,
-            merge_method: options.mergeMethod
-          });
-          
+            merge_method: options.mergeMethod,
+          };
+
+          // Add [skip ci] to intermediate PRs if enabled
+          if (options.skipIntermediateCi && !isLastPR) {
+            mergeParams.commit_title = `${pr.title} (#${pr.number}) [skip ci]`;
+            console.log('   ℹ️  Adding [skip ci] to commit title (intermediate PR)');
+          }
+
+          await octokit.rest.pulls.merge(mergeParams);
+
           console.log(`✅ Successfully merged PR #${pr.number}`);
         } catch (error) {
           console.error(`❌ Failed to merge PR #${pr.number}: ${error.message}`);
@@ -340,6 +349,7 @@ function main() {
     .option('--semver-filter <levels>', 'Semver levels to allow (major,minor,patch,unknown)', 'patch,minor')
     .option('--merge-method <method>', 'Merge method (merge, squash, rebase)', 'merge')
     .option('--retry-delay-ms <ms>', 'Delay in milliseconds between retries when checking PR mergeability', '2000')
+    .option('--skip-intermediate-ci','Add [skip ci] to merge commits for all but the last PR')
     .option('--no-dry-run', 'Actually merge PRs (default is dry run)')
     .option('-v, --verbose', 'Enable verbose logging')
     .action(async (url, options) => {
@@ -348,7 +358,7 @@ function main() {
       options.minimumAge = parseInt(options.minimumAge, 10);
       options.retryDelayMs = parseInt(options.retryDelayMs, 10) || 10000;
       options.dryRun = !options.noDryRun; // Commander converts --no-dry-run to noDryRun: true
-      
+      options.skipIntermediateCi = options.skipIntermediateCi || false;
       await runCli(options);
     });
 

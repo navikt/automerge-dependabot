@@ -45,7 +45,11 @@ inputs:
   auto-approve:
     description: Whether to automatically approve PRs before merging them
     required: false
-    default: 'false'  
+    default: 'false'
+  skip-intermediate-ci:
+    description: Add [skip ci] to merge commits for all but the last PR to prevent triggering CI/CD on intermediate merges
+    required: false
+    default: 'false'
 
 outputs:
   merged-pr-count:

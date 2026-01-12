@@ -37,6 +37,7 @@ Options:
   --semver-filter <levels>       Semver levels to allow (major,minor,patch,unknown) (default: "patch,minor")
   --merge-method <method>        Merge method (merge, squash, rebase) (default: "merge")
   --retry-delay-ms <ms>          Delay between retries when checking PR mergeability (default: "10000")
+  --skip-intermediate-ci         Add [skip ci] to merge commits for all but the last PR
   --no-dry-run                   Actually merge PRs (default is dry run)
   -v, --verbose                  Enable verbose logging
   -h, --help                     Display help for command

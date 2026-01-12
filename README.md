@@ -119,6 +119,22 @@ Whether to automatically approve PRs before merging them. Default: `false`.
 
 When enabled, the action will approve each eligible PR before attempting to merge it. This is useful for repositories that require PR approval even for automated processes. If approval fails for any reason, the PR will be skipped entirely (not merged).
 
+### `skip-intermediate-ci`
+
+Add `[skip ci]` to merge commits for all but the last PR to prevent triggering CI/CD pipelines on intermediate merges. Default: `false`.
+
+When merging multiple PRs in a single run, each merge creates a commit to the main branch which normally triggers your CI/CD pipeline (e.g., deployment workflows). With this option enabled:
+
+- All intermediate PRs (PR 1, PR 2, etc.) will have `[skip ci]` added to their merge commit message
+- Only the final PR merge will trigger your CI/CD pipeline
+- This reduces unnecessary deployments and CI runs when batch-merging dependency updates
+
+**Example scenario:** If the action merges 3 PRs:
+
+- PR #77: Merge commit includes `[skip ci]` → No deployment triggered
+- PR #78: Merge commit includes `[skip ci]` → No deployment triggered  
+- PR #79: Normal merge commit → Deployment triggered once with all changes
+
 ## Example usage
 
 Basic example:
@@ -178,6 +194,7 @@ jobs:
           semver-filter: 'patch'
           merge-method: 'merge'
           auto-approve: 'true'
+          skip-intermediate-ci: 'true'
 ```
 
 ## How It Works
