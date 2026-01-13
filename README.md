@@ -42,6 +42,13 @@ Note: Using GITHUB_TOKEN will not trigger on.push events (Ref: [github docs](htt
 
 The minimum age of the pull request in days before it can be automerged. Default: `0`.
 
+> [!CAUTION]
+> If your workflows do automatic builds of new PRs, using `minimum-age-of-pr` will not protect much against supply-chain
+> attacks; any secrets that are available to the auto-PR-build could be compromised.
+> 
+> You should consider using dependabot's [`cooldown`](https://docs.github.com/en/code-security/dependabot/working-with-dependabot/dependabot-options-reference#cooldown-)
+> feature instead of (or in addition to) `minimum-age-of-pr`.
+
 ### `blackout-periods`
 
 Periods of time when the action should not run. Multiple periods can be specified as a comma-separated list.
