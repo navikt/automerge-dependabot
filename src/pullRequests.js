@@ -83,7 +83,8 @@ async function findMergeablePRs(octokit, owner, repo, minimumAgeInDays, retryDel
     repo,
     state: 'open',
     sort: 'created',
-    direction: 'asc'
+    direction: 'asc',
+    per_page: 100
   });
   
   const minimumAge = timeUtils.subtractDays(new Date(), minimumAgeInDays);
