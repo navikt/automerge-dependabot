@@ -1,5 +1,7 @@
 # Contributing
 
+Thank you for using this action and for taking an interest in contributing. 
+
 Contributions are welcome. We encourage opening an issue first to discuss whether your proposed change aligns with the project scope.
 
 ## Scope
