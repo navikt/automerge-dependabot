@@ -6,7 +6,7 @@ Contributions are welcome. We encourage opening an issue first to discuss whethe
 
 ## Scope
 
-This action has a singular purpose: automatically merge Dependabot pull requests based on configurable rules. We maintain strict boundaries to keep the action secure, maintainable, and focused.
+This action has a singular purpose: automatically merge Dependabot pull requests based on configurable rules. We maintain strict (ish) boundaries to keep the action secure, maintainable, and focused.
 
 **Hard boundaries:**
 - Only `api.github.com` — no external APIs or services
