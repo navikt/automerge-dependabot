@@ -3,6 +3,8 @@
 [![Dependabot Updates](https://github.com/navikt/automerge-dependabot/actions/workflows/dependabot/dependabot-updates/badge.svg)](https://github.com/navikt/automerge-dependabot/actions/workflows/dependabot/dependabot-updates)
 [![CodeQL](https://github.com/navikt/automerge-dependabot/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/navikt/automerge-dependabot/actions/workflows/github-code-scanning/codeql)
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
+
 This action automatically merges pull requests created by Dependabot with a set of configurable rules.
 
 ## Usage
