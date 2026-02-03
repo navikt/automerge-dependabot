@@ -23,7 +23,7 @@
   "license": "MIT",
   "dependencies": {
     "@actions/core": "^2.0.2",
-    "@actions/github": "^7.0.0",
+    "@actions/github": "^8.0.0",
     "commander": "^14.0.2",
     "semver": "^7.7.3"
   },
