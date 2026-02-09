@@ -128,6 +128,28 @@ Whether to automatically approve PRs before merging them. Default: `false`.
 
 When enabled, the action will approve each eligible PR before attempting to merge it. This is useful for repositories that require PR approval even for automated processes. If approval fails for any reason, the PR will be skipped entirely (not merged).
 
+### `update-branch-before-merge`
+
+Whether to update PR branches that are behind the base branch before merging. Default: `false`.
+
+When enabled, the action will check if a PR branch is out-of-date with the base branch (using the `mergeable_state` field). If the branch is behind, it will:
+1. Update the PR branch to sync with the base branch
+2. Wait for CI checks to pass (up to `max-update-wait-seconds`)
+3. Proceed with merge if checks pass
+
+If the update fails or checks don't pass within the timeout, the PR will be skipped and the action will continue with other PRs.
+
+**Note**: This feature uses the undocumented `mergeable_state` field which GitHub considers "in flux". While widely used and stable in practice, it may change without notice.
+
+### `max-update-wait-seconds`
+
+Maximum time in seconds to wait for checks to pass after updating a PR branch. Default: `300` (5 minutes).
+
+This setting only applies when `update-branch-before-merge` is enabled. After updating a PR branch, the action will poll the PR status until:
+- All checks pass (proceeds with merge)
+- Timeout is reached (skips PR)
+- Checks fail (skips PR)
+
 ## Example usage
 
 Basic example:
@@ -187,6 +209,8 @@ jobs:
           semver-filter: 'patch'
           merge-method: 'merge'
           auto-approve: 'true'
+          update-branch-before-merge: 'true'
+          max-update-wait-seconds: '300'
 ```
 
 ## How It Works
@@ -211,6 +235,10 @@ jobs:
    - For multi-dependency PRs, ALL dependencies must pass filters
 7. Creates a detailed workflow summary showing which PRs will be merged and which were filtered out
 8. For each PR to merge:
+   - If update-branch-before-merge is enabled and PR branch is behind:
+     - Updates the PR branch to sync with base branch
+     - Waits for CI checks to pass (up to max-update-wait-seconds)
+     - Skips PR if update fails or checks don't pass within timeout
    - If auto-approve is enabled, approves the PR first (skips PR if approval fails)
    - Attempts to merge using the specified merge method
    - If merge fails due to base branch modification, re-verifies mergeability and retries once

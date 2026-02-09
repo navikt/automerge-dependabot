@@ -35,6 +35,8 @@ async function run() {
     const mergeMethod = core.getInput('merge-method');
     const retryDelayMs = parseInt(core.getInput('retry-delay-ms'), 10) || 10000;
     const autoApprove = core.getInput('auto-approve') === 'true';
+    const updateBranchBeforeMerge = core.getInput('update-branch-before-merge') === 'true';
+    const maxUpdateWaitSeconds = parseInt(core.getInput('max-update-wait-seconds'), 10) || 300;
     
     // Prepare filter options - we'll use this regardless of whether we're in a blackout period
     const filterOptions = {
@@ -108,6 +110,39 @@ async function run() {
         } else {
           // Merge eligible PRs
           for (const pr of filteredPRs) {
+
+          // Check if branch needs updating and update-branch-before-merge is enabled
+          if (updateBranchBeforeMerge && pr.prDetails && pr.prDetails.mergeable_state === 'behind') {
+            core.info(`PR #${pr.number} branch is behind base branch. Updating...`);
+            
+            const { updatePRBranch, waitForChecksAfterUpdate } = require('./pullRequests');
+            const updateSuccess = await updatePRBranch(
+              octokit,
+              context.repo.owner,
+              context.repo.repo,
+              pr.number
+            );
+            
+            if (!updateSuccess) {
+              core.warning(`Skipping merge of PR #${pr.number} due to branch update failure`);
+              continue;
+            }
+            
+            // Wait for checks to pass after update
+            const checksPass = await waitForChecksAfterUpdate(
+              octokit,
+              context.repo.owner,
+              context.repo.repo,
+              pr.number,
+              maxUpdateWaitSeconds,
+              retryDelayMs
+            );
+            
+            if (!checksPass) {
+              core.warning(`Skipping merge of PR #${pr.number} because checks did not pass after branch update`);
+              continue;
+            }
+          }
 
           // Auto-approve if enabled
           if (autoApprove) {

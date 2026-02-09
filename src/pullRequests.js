@@ -434,11 +434,111 @@ async function approvePullRequest(octokit, owner, repo, pullNumber) {
   }
 }
 
+/**
+ * Update a pull request branch to sync with the base branch
+ *
+ * @param {Object} octokit - GitHub API client
+ * @param {string} owner - Repository owner
+ * @param {string} repo - Repository name
+ * @param {number} pullNumber - Pull request number
+ * @returns {boolean} True if update succeeded, false otherwise
+ */
+async function updatePRBranch(octokit, owner, repo, pullNumber) {
+  try {
+    await octokit.rest.pulls.updateBranch({
+      owner,
+      repo,
+      pull_number: pullNumber
+    });
+    core.info(`Updated branch for PR #${pullNumber} to sync with base branch`);
+    return true;
+  } catch (error) {
+    core.warning(`Failed to update branch for PR #${pullNumber}: ${error.message}`);
+    return false;
+  }
+}
+
+/**
+ * Wait for checks to pass after updating a PR branch
+ *
+ * @param {Object} octokit - GitHub API client
+ * @param {string} owner - Repository owner
+ * @param {string} repo - Repository name
+ * @param {number} pullNumber - Pull request number
+ * @param {number} maxWaitSeconds - Maximum time to wait in seconds
+ * @param {number} retryDelayMs - Delay in milliseconds between retries
+ * @returns {boolean} True if checks pass, false if timeout or failure
+ */
+async function waitForChecksAfterUpdate(octokit, owner, repo, pullNumber, maxWaitSeconds, retryDelayMs = 2000) {
+  const startTime = Date.now();
+  const maxWaitMs = maxWaitSeconds * 1000;
+  let attempt = 0;
+  
+  core.info(`Waiting up to ${maxWaitSeconds} seconds for checks to pass on PR #${pullNumber} after branch update...`);
+  
+  while (true) {
+    attempt++;
+    const elapsedMs = Date.now() - startTime;
+    
+    // Check if we've exceeded the timeout
+    if (elapsedMs >= maxWaitMs) {
+      core.warning(`Timeout waiting for checks to pass on PR #${pullNumber} (waited ${Math.round(elapsedMs / 1000)}s)`);
+      return false;
+    }
+    
+    try {
+      // Check PR mergeability
+      const prDetails = await checkPRMergeability(octokit, owner, repo, pullNumber, retryDelayMs);
+      
+      if (!prDetails) {
+        core.debug(`PR #${pullNumber} mergeable state could not be determined (attempt ${attempt})`);
+        await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+        continue;
+      }
+      
+      // Get combined status for the PR
+      const { data: combinedStatus } = await octokit.rest.repos.getCombinedStatusForRef({
+        owner,
+        repo,
+        ref: prDetails.head.sha
+      });
+      
+      // Check if checks are passing
+      if (prDetails.mergeable && combinedStatus.state === 'success') {
+        core.info(`Checks passed for PR #${pullNumber} after ${Math.round(elapsedMs / 1000)}s`);
+        return true;
+      }
+      
+      // If status is failure, no point in waiting
+      if (combinedStatus.state === 'failure') {
+        core.warning(`Checks failed for PR #${pullNumber} after branch update`);
+        return false;
+      }
+      
+      // If not mergeable due to conflicts, fail immediately
+      if (!prDetails.mergeable) {
+        core.warning(`PR #${pullNumber} is not mergeable after branch update (may have conflicts)`);
+        return false;
+      }
+      
+      // Wait before next attempt
+      core.debug(`PR #${pullNumber} checks still pending (attempt ${attempt}, elapsed: ${Math.round(elapsedMs / 1000)}s)`);
+      await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+      
+    } catch (error) {
+      core.warning(`Error checking PR #${pullNumber} status (attempt ${attempt}): ${error.message}`);
+      await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+    }
+  }
+}
+
 module.exports = {
   findMergeablePRs,
   extractDependencyInfo,
   extractMultipleDependencyInfo,
   determineSemverChange,
   checkPRMergeability,
-  approvePullRequest
+  approvePullRequest,
+  updatePRBranch,
+  waitForChecksAfterUpdate
 };
