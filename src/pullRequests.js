@@ -496,23 +496,41 @@ async function waitForChecksAfterUpdate(octokit, owner, repo, pullNumber, maxWai
         continue;
       }
       
-      // Get combined status for the PR
+      // Get combined commit status (Status API)
       const { data: combinedStatus } = await octokit.rest.repos.getCombinedStatusForRef({
         owner,
         repo,
         ref: prDetails.head.sha
       });
-      
-      // Check if checks are passing
-      if (prDetails.mergeable && combinedStatus.state === 'success') {
-        core.info(`Checks passed for PR #${pullNumber} after ${Math.round(elapsedMs / 1000)}s`);
-        return true;
-      }
-      
+
+      // Get check runs (Checks API – used by GitHub Actions and modern CI providers)
+      const { data: checkRunsData } = await octokit.rest.checks.listForRef({
+        owner,
+        repo,
+        ref: prDetails.head.sha
+      });
+      const checkRuns = checkRunsData.check_runs || [];
+
+      const statusFailed = combinedStatus.state === 'failure';
+      const anyCheckFailed = checkRuns.some(run =>
+        run.conclusion === 'failure' || run.conclusion === 'cancelled' || run.conclusion === 'timed_out'
+      );
+      const anyCheckPending = checkRuns.some(run =>
+        run.status === 'queued' || run.status === 'in_progress'
+      );
+      const statusSuccess = combinedStatus.state === 'success' || combinedStatus.total_count === 0;
+      const allChecksCompleted = !anyCheckPending && !anyCheckFailed;
+
       // If status is failure, no point in waiting
-      if (combinedStatus.state === 'failure') {
+      if (statusFailed || anyCheckFailed) {
         core.warning(`Checks failed for PR #${pullNumber} after branch update`);
         return false;
+      }
+      
+      // Check if checks are passing
+      if (prDetails.mergeable && statusSuccess && allChecksCompleted) {
+        core.info(`Checks passed for PR #${pullNumber} after ${Math.round(elapsedMs / 1000)}s`);
+        return true;
       }
       
       // If not mergeable due to conflicts, fail immediately
