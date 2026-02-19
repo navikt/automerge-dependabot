@@ -1,6 +1,6 @@
 const core = require('@actions/core');
 const github = require('@actions/github');
-const { findMergeablePRs, approvePullRequest } = require('./pullRequests');
+const { findMergeablePRs, approvePullRequest, updatePRBranch, waitForChecksAfterUpdate } = require('./pullRequests');
 const { shouldRunAtCurrentTime } = require('./timeUtils');
 const { applyFilters } = require('./filters');
 const { addWorkflowSummary } = require('./summary');
@@ -33,10 +33,12 @@ async function run() {
     const ignoredVersions = core.getInput('ignored-versions');
     const semverFilter = core.getInput('semver-filter');
     const mergeMethod = core.getInput('merge-method');
-    const retryDelayMs = parseInt(core.getInput('retry-delay-ms'), 10) || 10000;
+    const parsedRetryDelay = parseInt(core.getInput('retry-delay-ms'), 10);
+    const retryDelayMs = Number.isNaN(parsedRetryDelay) ? 10000 : parsedRetryDelay;
     const autoApprove = core.getInput('auto-approve') === 'true';
     const updateBranchBeforeMerge = core.getInput('update-branch-before-merge') === 'true';
-    const maxUpdateWaitSeconds = parseInt(core.getInput('max-update-wait-seconds'), 10) || 300;
+    const parsedMaxUpdateWait = parseInt(core.getInput('max-update-wait-seconds'), 10);
+    const maxUpdateWaitSeconds = Number.isNaN(parsedMaxUpdateWait) ? 300 : parsedMaxUpdateWait;
     
     // Prepare filter options - we'll use this regardless of whether we're in a blackout period
     const filterOptions = {
@@ -115,7 +117,6 @@ async function run() {
           if (updateBranchBeforeMerge && pr.prDetails && pr.prDetails.mergeable_state === 'behind') {
             core.info(`PR #${pr.number} branch is behind base branch. Updating...`);
             
-            const { updatePRBranch, waitForChecksAfterUpdate } = require('./pullRequests');
             const updateSuccess = await updatePRBranch(
               octokit,
               context.repo.owner,
