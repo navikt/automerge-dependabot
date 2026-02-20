@@ -9,7 +9,14 @@ const config = {
     format: 'es',
     sourcemap: true
   },
-  plugins: [commonjs(), nodeResolve({ preferBuiltins: true })]
+  plugins: [commonjs(), nodeResolve({ preferBuiltins: true })],
+  onwarn(warning, warn) {
+    // Suppress known-harmless warnings from node_modules (e.g. TypeScript-compiled CJS
+    // using `this` at module level, and circular deps in semver/@actions packages).
+    if (warning.id && warning.id.includes('node_modules')) return;
+    if (warning.ids && warning.ids.every(id => id.includes('node_modules'))) return;
+    warn(warning);
+  }
 };
 
 export default config;
