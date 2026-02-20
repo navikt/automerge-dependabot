@@ -13,7 +13,7 @@ import { applyFilters, getAllFilterReasons } from './filters.js';
 function parseRepository(repository) {
   const match = repository && repository.match(/^([^/]+)\/([^/]+)$/);
   if (!match) {
-    throw new Error('Invalid repository format. Expected: owner/repo (e.g., navikt/appsec-internal-test)');
+    throw new Error('Invalid repository format. Expected: owner/repo (e.g., navikt/automerge-dependabot)');
   }
   return { owner: match[1], repo: match[2] };
 }
@@ -82,7 +82,7 @@ function formatPRList(pullRequests, title) {
     console.log(`  • PR #${pr.number}: ${pr.title}`);
     console.log(`    📅 Created ${ageInDays} days ago`);
     console.log(`    🔗 ${pr.html_url || `https://github.com/${pr.base?.repo?.owner?.login || 'owner'}/${pr.base?.repo?.name || 'repo'}/pull/${pr.number}`}`);
-    
+
     if (pr.dependencyInfo) {
       console.log(`    📦 ${pr.dependencyInfo.name}: ${pr.dependencyInfo.fromVersion} → ${pr.dependencyInfo.toVersion} (${pr.dependencyInfo.semverChange})`);
     } else if (pr.dependencyInfoList && pr.dependencyInfoList.length > 0) {
@@ -101,13 +101,13 @@ function formatPRList(pullRequests, title) {
  */
 async function runCli(options) {
   try {
-    // Parse GitHub URL
+    // Parse repository
     const { owner, repo } = parseRepository(options.url);
     console.log(`🔍 Analyzing repository: ${owner}/${repo}`);
-    
+
     // Setup authentication
     const token = options.token || process.env.GITHUB_TOKEN;
-    
+
     if (!token) {
       throw new Error('GitHub token not provided. Options:\n' +
         '  1. Use --token option with a personal access token\n' +
@@ -120,13 +120,13 @@ async function runCli(options) {
         '   • Login: gh auth login\n' +
         '   • Usage: automerge-dependabot run <repo-url> --token "$(gh auth token)"');
     }
-    
+
     // Setup mock modules for CLI usage
     const mockCore = createMockCore(options.verbose);
-    
+
     // Create Octokit client
     const octokit = github.getOctokit(token);
-    
+
     // Prepare filter options
     const filterOptions = {
       ignoredDependencies: options.ignoredDependencies ? options.ignoredDependencies.split(',').map(d => d.trim()) : [],
@@ -135,7 +135,7 @@ async function runCli(options) {
       ignoredVersions: options.ignoredVersions ? options.ignoredVersions.split(',').map(v => v.trim()) : [],
       semverFilter: options.semverFilter ? options.semverFilter.split(',').map(s => s.trim()) : ['patch', 'minor']
     };
-    
+
     console.log('\n⚙️  Configuration:');
     console.log(`   • Minimum PR age: ${options.minimumAge} days`);
     console.log(`   • Merge method: ${options.mergeMethod}`);
@@ -155,13 +155,13 @@ async function runCli(options) {
     if (filterOptions.ignoredVersions.length > 0) {
       console.log(`   • Ignored versions: ${filterOptions.ignoredVersions.join(', ')}`);
     }
-    
+
     // Check blackout periods
     if (options.blackoutPeriods && !shouldRunAtCurrentTime(options.blackoutPeriods)) {
       console.log('\n⏰ Currently in a blackout period. Skipping execution.');
       return;
     }
-    
+
     // Get repository info for default branch check
     try {
       const { data: repoData } = await octokit.rest.repos.get({
@@ -174,7 +174,7 @@ async function runCli(options) {
     } catch (error) {
       mockCore.warning(`Failed to get repository information: ${error.message}`);
     }
-    
+
     // Find mergeable PRs
     console.log('\n🔎 Finding mergeable Dependabot PRs...');
     const result = await findMergeablePRs(
@@ -184,66 +184,66 @@ async function runCli(options) {
       options.minimumAge,
       options.retryDelayMs
     );
-    
+
     const pullRequests = result.eligiblePRs;
     const initialPRs = result.initialPRs;
-    
+
     console.log(`Found ${initialPRs.length} open pull requests, ${pullRequests.length} eligible for auto-merging.`);
-    
+
     if (pullRequests.length === 0) {
       // Show what was filtered out during basic criteria if there were initial PRs
       if (initialPRs.length > 0) {
-        const basicCriteriaFiltered = initialPRs.filter(pr => 
+        const basicCriteriaFiltered = initialPRs.filter(pr =>
           !pullRequests.some(eligible => eligible.number === pr.number)
         );
-        
+
         if (basicCriteriaFiltered.length > 0) {
           console.log(`\n📋 PRs Filtered Out (Basic Criteria) (${basicCriteriaFiltered.length}):`);
           const allFilterReasons = getAllFilterReasons();
-          
+
           basicCriteriaFiltered.forEach(pr => {
             const reasons = allFilterReasons.get(pr.number);
-            const reasonText = reasons && reasons.length > 0 
+            const reasonText = reasons && reasons.length > 0
               ? reasons.map(r => r.reason).join(', ')
               : 'Unknown reason';
-            
+
             console.log(`  • PR #${pr.number}: ${pr.title}`);
             console.log(`    🚫 Reason: ${reasonText}`);
             console.log();
           });
         }
       }
-      
+
       console.log('\n✅ No eligible pull requests found for automerging.');
       return;
     }
-    
+
     // Apply filters
     console.log('\n🔍 Applying filters...');
     const filteredPRs = applyFilters(pullRequests, filterOptions, mockCore);
-    
+
     // Display results
     console.log('\n' + '='.repeat(60));
     console.log('📊 RESULTS');
     console.log('='.repeat(60));
-    
+
     // Calculate filtered PRs from basic criteria
-    const basicCriteriaFiltered = initialPRs.filter(pr => 
+    const basicCriteriaFiltered = initialPRs.filter(pr =>
       !pullRequests.some(eligible => eligible.number === pr.number)
     );
-    
+
     // Show basic criteria filtering if any PRs were filtered out
     if (basicCriteriaFiltered.length > 0) {
       console.log(`\n📋 PRs Filtered Out (Basic Criteria) (${basicCriteriaFiltered.length}):`);
       const allFilterReasons = getAllFilterReasons();
-      
+
       basicCriteriaFiltered.forEach(pr => {
         const ageInDays = Math.floor((new Date() - new Date(pr.created_at)) / (1000 * 60 * 60 * 24));
         const reasons = allFilterReasons.get(pr.number);
-        const reasonText = reasons && reasons.length > 0 
+        const reasonText = reasons && reasons.length > 0
           ? reasons.map(r => r.reason).join(', ')
           : 'Unknown reason';
-        
+
         console.log(`  • PR #${pr.number}: ${pr.title}`);
         console.log(`    📅 Created ${ageInDays} days ago`);
         console.log(`    🔗 ${pr.html_url || `https://github.com/${pr.base?.repo?.owner?.login || 'owner'}/${pr.base?.repo?.name || 'repo'}/pull/${pr.number}`}`);
@@ -254,14 +254,14 @@ async function runCli(options) {
 
     formatPRList(pullRequests, 'All Eligible PRs Found');
     formatPRList(filteredPRs, 'PRs That Pass Filters');
-    
-    const filteredOutPRs = pullRequests.filter(pr => 
+
+    const filteredOutPRs = pullRequests.filter(pr =>
       !filteredPRs.some(filtered => filtered.number === pr.number)
     );
     if (filteredOutPRs.length > 0) {
       formatPRList(filteredOutPRs, 'PRs Filtered Out (User Filters)');
     }
-    
+
     // Summary
     console.log('\n📈 Summary:');
     console.log(`   • Total PRs found: ${initialPRs.length}`);
@@ -269,13 +269,13 @@ async function runCli(options) {
     console.log(`   • Eligible PRs: ${pullRequests.length}`);
     console.log(`   • PRs that pass user filters: ${filteredPRs.length}`);
     console.log(`   • PRs filtered out (user filters): ${filteredOutPRs.length}`);
-    
+
     // Merge or dry run
     if (filteredPRs.length === 0) {
       console.log('\n✅ No pull requests to merge.');
       return;
     }
-    
+
     if (options.dryRun) {
       console.log(`\n🔍 DRY RUN: Would merge ${filteredPRs.length} PR(s):`);
       filteredPRs.forEach(pr => {
@@ -284,7 +284,7 @@ async function runCli(options) {
       console.log('\n💡 Use --no-dry-run to actually merge these PRs.');
     } else {
       console.log(`\n🚀 Merging ${filteredPRs.length} PR(s)...`);
-      
+
       for (const pr of filteredPRs) {
         console.log(`\n⏳ Merging PR #${pr.number}: ${pr.title}`);
 
@@ -322,10 +322,10 @@ async function runCli(options) {
           console.error(`❌ Failed to merge PR #${pr.number}: ${error.message}`);
         }
       }
-      
+
       console.log('\n🎉 Merge operation completed!');
     }
-    
+
   } catch (error) {
     console.error(`❌ CLI failed: ${error.message}`);
     process.exit(1);
@@ -425,6 +425,13 @@ async function main() {
     return;
   }
 
+  const validCommands = ['run', 'auth-status', '--help', '-h'];
+  if (command !== 'run' && !validCommands.includes(command)) {
+    console.error(`❌ Unknown command: '${command}'\n`);
+    printHelp();
+    process.exit(1);
+  }
+
   const runArgs = command === 'run' ? args.slice(1) : args;
 
   const { values, positionals } = parseArgs({
@@ -451,6 +458,12 @@ async function main() {
 
   const url = positionals[0];
 
+  if (!url) {
+    console.error('❌ Missing required argument: repository (e.g., owner/repo)\n');
+    printHelp();
+    process.exit(1);
+  }
+
   await runCli({
     url,
     token:                values['token'],
@@ -473,7 +486,10 @@ async function main() {
 
 // Only run if this is the main module
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  main();
+  main().catch((error) => {
+    console.error(`❌ ${error.message}`);
+    process.exit(1);
+  });
 }
 
 export {
