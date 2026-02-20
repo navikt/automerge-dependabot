@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "GitHub Action to automatically merge Dependabot pull requests",
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "exports": {
     ".": "./dist/index.js"
   },
