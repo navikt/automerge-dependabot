@@ -1,7 +1,7 @@
-const core = require('@actions/core');
-const timeUtils = require('./timeUtils');
-const semver = require('semver');
-const { recordFilterReason } = require('../src/filters');
+import * as core from '@actions/core';
+import * as timeUtils from './timeUtils.js';
+import semver from 'semver';
+import { recordFilterReason } from './filters.js';
 
 /**
  * Determine semver change level between two versions
@@ -557,7 +557,7 @@ async function waitForChecksAfterUpdate(octokit, owner, repo, pullNumber, maxWai
   }
 }
 
-module.exports = {
+export {
   findMergeablePRs,
   extractDependencyInfo,
   extractMultipleDependencyInfo,

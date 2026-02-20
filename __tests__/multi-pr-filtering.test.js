@@ -1,56 +1,25 @@
-// Define mocks before imports
+import { jest, describe, beforeEach, test, expect } from '@jest/globals';
+import * as core from '../__fixtures__/core.js';
+import * as github from '../__fixtures__/github.js';
+import fs from 'fs';
+
 const mockAddWorkflowSummary = jest.fn().mockResolvedValue({});
 
-// Mock modules
-jest.mock('../src/summary', () => ({
-  addWorkflowSummary: mockAddWorkflowSummary,
-  getSummaryContent: jest.fn()
+jest.unstable_mockModule('../src/summary.js', () => ({
+  addWorkflowSummary: mockAddWorkflowSummary
 }));
-jest.mock('@actions/core');
-jest.mock('@actions/github');
-jest.mock('path', () => {
-  const originalPath = jest.requireActual('path');
-  return {
-    ...originalPath,
-    join: jest.fn((...args) => originalPath.join(...args)),
-    resolve: jest.fn((...args) => originalPath.resolve(...args))
-  };
-});
-jest.mock('fs', () => {
-  const originalFs = jest.requireActual('fs');
-  return {
-    ...originalFs,
-    readFileSync: jest.fn((path) => {
-      // Return mock content for the PR files
-      if (path.includes('pr11.md')) {
-        return originalFs.readFileSync('__tests__/data/pr11.md', 'utf8');
-      }
-      if (path.includes('pr12.md')) {
-        return originalFs.readFileSync('__tests__/data/pr12.md', 'utf8');
-      }
-      if (path.includes('pr13.md')) {
-        return originalFs.readFileSync('__tests__/data/pr13.md', 'utf8');
-      }
-      if (path.includes('pr14.md')) {
-        return originalFs.readFileSync('__tests__/data/pr14.md', 'utf8');
-      }
-      return originalFs.readFileSync(path);
-    })
-  };
-});
+jest.unstable_mockModule('@actions/core', () => core);
+jest.unstable_mockModule('@actions/github', () => github);
 
-// Now import modules
-const core = require('@actions/core');
-const { run } = require('../src/index');
-const { setupTestEnvironment, createMockPR } = require('./helpers/mockSetup');
-const fs = require('fs');
+const { run } = await import('../src/index.js');
+const { setupTestEnvironment, createMockPR } = await import('./helpers/mockSetup.js');
 
 describe('Multiple PR filtering scenario', () => {
   let mockOctokit;
 
   beforeEach(() => {
     // Set up test environment with filtering configuration
-    const result = setupTestEnvironment({
+    const result = setupTestEnvironment(core, github, {
       inputOverrides: {
         "ignored-dependencies": "path-to-regexp@*,express,react@19.1.0,react-dom@19.1.0",
         "always-allow": "gradle/actions",

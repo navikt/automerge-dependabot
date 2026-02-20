@@ -1,13 +1,16 @@
-const core = require('@actions/core');
-const github = require('@actions/github');
-const { run } = require('../src/index');
+import { jest, describe, beforeEach, test, expect } from '@jest/globals';
+import * as core from '../__fixtures__/core.js';
+import * as github from '../__fixtures__/github.js';
 
-// Mock external dependencies only
-jest.mock('@actions/core');
-jest.mock('@actions/github');
-jest.mock('../src/summary', () => ({
-  addWorkflowSummary: jest.fn().mockResolvedValue({})
+const mockAddWorkflowSummary = jest.fn().mockResolvedValue({});
+
+jest.unstable_mockModule('@actions/core', () => core);
+jest.unstable_mockModule('@actions/github', () => github);
+jest.unstable_mockModule('../src/summary.js', () => ({
+  addWorkflowSummary: mockAddWorkflowSummary
 }));
+
+const { run } = await import('../src/index.js');
 
 describe('run', () => {
   const mockOctokit = {
@@ -31,18 +34,6 @@ describe('run', () => {
     }
   };
 
-  // Set up the GitHub context
-  github.context = {
-    repo: {
-      owner: 'owner',
-      repo: 'repo'
-    },
-    ref: 'refs/heads/main'
-  };
-
-  // Set up the GitHub getOctokit function
-  github.getOctokit = jest.fn().mockReturnValue(mockOctokit);
-
   // Default input values
   const defaultInputs = {
     'token': 'direct-token',
@@ -58,9 +49,17 @@ describe('run', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    
+
+    // Set up GitHub context and octokit
+    github.context.repo = { owner: 'owner', repo: 'repo' };
+    github.context.ref = 'refs/heads/main';
+    github.getOctokit.mockReturnValue(mockOctokit);
+
     // Set up default input values
-    core.getInput = jest.fn(name => defaultInputs[name] || '');
+    core.getInput.mockImplementation(name => defaultInputs[name] || '');
+    core.summary.addHeading.mockReturnThis();
+    core.summary.addRaw.mockReturnThis();
+    core.summary.write.mockResolvedValue(undefined);
     
     // Set up the mock PR data
     mockOctokit.rest.pulls.list.mockResolvedValue({
@@ -114,18 +113,11 @@ describe('run', () => {
     mockOctokit.rest.pulls.merge.mockResolvedValue({});
     mockOctokit.rest.pulls.updateBranch.mockResolvedValue({});
     mockOctokit.rest.checks.listForRef.mockResolvedValue({ data: { check_runs: [] } });
-    
-    // Set up the core functions
-    core.info = jest.fn();
-    core.warning = jest.fn();
-    core.setFailed = jest.fn();
-    core.debug = jest.fn();
-    core.setOutput = jest.fn();
   });
 
   test('handles direct token value', async () => {
     // Override the default token value
-    core.getInput = jest.fn(name => {
+    core.getInput.mockImplementation(name => {
       if (name === 'token') return 'direct-token';
       return defaultInputs[name] || '';
     });
@@ -137,7 +129,7 @@ describe('run', () => {
 
   test('handles token from environment variable', async () => {
     // Override the default token value to use environment variable
-    core.getInput = jest.fn(name => {
+    core.getInput.mockImplementation(name => {
       if (name === 'token') return '$ENV_TOKEN';
       return defaultInputs[name] || '';
     });
@@ -156,7 +148,7 @@ describe('run', () => {
 
   test('throws error when token is missing', async () => {
     // Override the token value to be empty
-    core.getInput = jest.fn(name => {
+    core.getInput.mockImplementation(name => {
       if (name === 'token') return '';
       return defaultInputs[name] || '';
     });
@@ -179,7 +171,7 @@ describe('run', () => {
     const blackoutPeriod = `${startTime.toISOString()}/${endTime.toISOString()}`;
     
     // Override the blackout periods input
-    core.getInput = jest.fn(name => {
+    core.getInput.mockImplementation(name => {
       if (name === 'blackout-periods') return blackoutPeriod;
       return defaultInputs[name] || '';
     });
@@ -285,7 +277,7 @@ describe('run', () => {
     });
     
     // Override the ignored-dependencies input
-    core.getInput = jest.fn(name => {
+    core.getInput.mockImplementation(name => {
       if (name === 'ignored-dependencies') return 'lodash';
       return defaultInputs[name] || '';
     });
@@ -361,7 +353,7 @@ describe('run', () => {
   
   test('should fail if token is not found', async () => {
     // Override the token value to use a non-existent environment variable
-    core.getInput = jest.fn(name => {
+    core.getInput.mockImplementation(name => {
       if (name === 'token') return '$NONEXISTENT_TOKEN';
       return defaultInputs[name] || '';
     });
@@ -398,7 +390,7 @@ describe('run', () => {
     });
     
     // Override the merge method to use squash
-    core.getInput = jest.fn(name => {
+    core.getInput.mockImplementation(name => {
       if (name === 'merge-method') return 'squash';
       return defaultInputs[name] || '';
     });
@@ -498,7 +490,7 @@ describe('run', () => {
       });
       
       // Override the ignored-dependencies input
-      core.getInput = jest.fn(name => {
+      core.getInput.mockImplementation(name => {
         if (name === 'ignored-dependencies') return 'morgan';
         return defaultInputs[name] || '';
       });
@@ -544,7 +536,7 @@ describe('run', () => {
       });
       
       // Override the ignored-versions input
-      core.getInput = jest.fn(name => {
+      core.getInput.mockImplementation(name => {
         if (name === 'ignored-versions') return 'axios@0.22.0';
         return defaultInputs[name] || '';
       });
@@ -590,7 +582,7 @@ describe('run', () => {
       });
       
       // Override the semver-filter input
-      core.getInput = jest.fn(name => {
+      core.getInput.mockImplementation(name => {
         if (name === 'semver-filter') return 'patch,minor';
         return defaultInputs[name] || '';
       });
@@ -607,7 +599,7 @@ describe('run', () => {
     
     test('should correctly process workflow summary', async () => {
       // Only allow patch updates
-      core.getInput = jest.fn(name => {
+      core.getInput.mockImplementation(name => {
         if (name === 'semver-filter') return 'patch';
         return defaultInputs[name] || '';
       });
@@ -922,7 +914,7 @@ describe('run', () => {
 
   test('should approve PR before merging when auto-approve is enabled', async () => {
       // Set auto-approve to true
-      core.getInput = jest.fn((name) => {
+      core.getInput.mockImplementation((name) => {
         if (name === 'auto-approve') return 'true';
         return defaultInputs[name] || '';
       });
@@ -947,7 +939,7 @@ describe('run', () => {
 
     test('should skip merge when approval fails', async () => {
       // Set auto-approve to true
-      core.getInput = jest.fn((name) => {
+      core.getInput.mockImplementation((name) => {
         if (name === 'auto-approve') return 'true';
         return defaultInputs[name] || '';
       });
@@ -1018,7 +1010,7 @@ describe('run', () => {
       });
 
       // Set auto-approve to true
-      core.getInput = jest.fn(name => {
+      core.getInput.mockImplementation(name => {
         if (name === 'auto-approve') return 'true';
         return defaultInputs[name] || '';
       });
@@ -1052,7 +1044,7 @@ describe('run', () => {
 
     test('should handle approval with retry logic when base branch changes', async () => {
       // Set auto-approve to true
-      core.getInput = jest.fn(name => {
+      core.getInput.mockImplementation(name => {
         if (name === 'auto-approve') return 'true';
         return defaultInputs[name] || '';
       });
@@ -1078,7 +1070,7 @@ describe('run', () => {
 
     test('should not duplicate approvals when retrying merge', async () => {
       // Set auto-approve to true
-      core.getInput = jest.fn(name => {
+      core.getInput.mockImplementation(name => {
         if (name === 'auto-approve') return 'true';
         return defaultInputs[name] || '';
       });
@@ -1110,7 +1102,7 @@ describe('run', () => {
     };
 
     beforeEach(() => {
-      core.getInput = jest.fn(name => {
+      core.getInput.mockImplementation(name => {
         if (name === 'update-branch-before-merge') return 'true';
         if (name === 'max-update-wait-seconds') return '60';
         return defaultInputs[name] || '';

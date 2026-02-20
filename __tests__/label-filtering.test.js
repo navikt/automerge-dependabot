@@ -1,4 +1,5 @@
-const { shouldAlwaysAllowByLabel } = require('../src/filters');
+import { describe, test, expect } from '@jest/globals';
+import { shouldAlwaysAllowByLabel } from '../src/filters.js';
 
 describe('Label Filtering', () => {
   describe('shouldAlwaysAllowByLabel', () => {

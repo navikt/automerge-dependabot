@@ -1,8 +1,9 @@
-const { Command } = require('commander');
-const github = require('@actions/github');
-const { findMergeablePRs } = require('./pullRequests');
-const { shouldRunAtCurrentTime } = require('./timeUtils');
-const { applyFilters, getAllFilterReasons } = require('./filters');
+import { Command } from 'commander';
+import * as github from '@actions/github';
+import { fileURLToPath } from 'node:url';
+import { findMergeablePRs } from './pullRequests.js';
+import { shouldRunAtCurrentTime } from './timeUtils.js';
+import { applyFilters, getAllFilterReasons } from './filters.js';
 
 /**
  * Parse GitHub repository URL to extract owner and repo
@@ -401,11 +402,11 @@ function main() {
 }
 
 // Only run if this is the main module
-if (require.main === module) {
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
   main();
 }
 
-module.exports = {
+export {
   runCli,
   parseGitHubUrl,
   createMockContext,

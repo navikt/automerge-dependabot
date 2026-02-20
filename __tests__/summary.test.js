@@ -1,19 +1,15 @@
-// Mock modules before requiring the code under test
-const mockSummary = {
-  addHeading: jest.fn().mockReturnThis(),
-  addRaw: jest.fn().mockReturnThis(),
-  write: jest.fn().mockResolvedValue(undefined)
-};
+import { jest, describe, beforeEach, test, expect } from '@jest/globals';
+import * as core from '../__fixtures__/core.js';
 
-jest.mock('@actions/core', () => ({
-  info: jest.fn(),
-  debug: jest.fn(),
-  warning: jest.fn(),
+const mockSummary = core.summary;
+
+jest.unstable_mockModule('@actions/core', () => ({
+  ...core,
   summary: mockSummary,
   getInput: jest.fn().mockImplementation(name => name === 'blackout-periods' ? '' : '')
 }));
 
-jest.mock('../src/filters', () => ({
+jest.unstable_mockModule('../src/filters.js', () => ({
   getFilterReasons: jest.fn().mockImplementation(prNumber => {
     if (prNumber === 2) {
       return [
@@ -31,17 +27,19 @@ jest.mock('../src/filters', () => ({
   })
 }));
 
-jest.mock('../src/timeUtils', () => ({
+jest.unstable_mockModule('../src/timeUtils.js', () => ({
   shouldRunAtCurrentTime: jest.fn().mockReturnValue(true)
 }));
 
-// Import after mocking
-const core = require('@actions/core');
-const { addWorkflowSummary } = require('../src/summary');
+const { addWorkflowSummary } = await import('../src/summary.js');
+const { getFilterReasons } = await import('../src/filters.js');
 
 describe('addWorkflowSummary', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockSummary.addHeading.mockReturnThis();
+    mockSummary.addRaw.mockReturnThis();
+    mockSummary.write.mockResolvedValue(undefined);
   });
 
   test('should include all PRs in the overview table with correct status', async () => {
@@ -244,7 +242,6 @@ describe('addWorkflowSummary', () => {
     const prsToMerge = [];
 
     // Mock the getFilterReasons to return basic criteria reasons
-    const { getFilterReasons } = require('../src/filters');
     getFilterReasons.mockImplementation(prNumber => {
       if (prNumber === 5) {
         return [{ dependency: 'general', reason: 'PR is not mergeable' }];
@@ -312,7 +309,6 @@ describe('addWorkflowSummary', () => {
     const prsToMerge = [allPRs[0]];
 
     // Mock the getFilterReasons to return basic criteria reasons for the filtered PRs
-    const { getFilterReasons } = require('../src/filters');
     getFilterReasons.mockImplementation(prNumber => {
       const basicCriteriaReasons = {
         11: [{ dependency: 'general', reason: 'Not in mergeable state' }],

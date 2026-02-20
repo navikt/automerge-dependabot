@@ -1,13 +1,17 @@
-jest.mock('../src/summary', () => ({
-  addWorkflowSummary: jest.fn().mockResolvedValue({}),
-  getSummaryContent: jest.fn()
-}));
-jest.mock('@actions/core');
-jest.mock('@actions/github');
+import { jest, describe, beforeEach, test, expect } from '@jest/globals';
+import * as core from '../__fixtures__/core.js';
+import * as github from '../__fixtures__/github.js';
 
-const core = require('@actions/core');
-const { run } = require('../src/index');
-const { setupTestEnvironment, createMockPR } = require('./helpers/mockSetup');
+const mockAddWorkflowSummary = jest.fn().mockResolvedValue({});
+
+jest.unstable_mockModule('../src/summary.js', () => ({
+  addWorkflowSummary: mockAddWorkflowSummary
+}));
+jest.unstable_mockModule('@actions/core', () => core);
+jest.unstable_mockModule('@actions/github', () => github);
+
+const { run } = await import('../src/index.js');
+const { setupTestEnvironment, createMockPR } = await import('./helpers/mockSetup.js');
 
 const fourDaysAgo = new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString();
 
@@ -33,7 +37,7 @@ describe('Merging multiple PRs when base branch changes', () => {
   let mockOctokit;
 
   beforeEach(() => {
-    const result = setupTestEnvironment({
+    const result = setupTestEnvironment(core, github, {
       inputOverrides: { 'retry-delay-ms': '1' }
     });
     mockOctokit = result.mockOctokit;

@@ -1,6 +1,6 @@
-const core = require('@actions/core');
-const { getFilterReasons, shouldAlwaysAllowByLabel } = require('./filters');
-const { shouldRunAtCurrentTime } = require('./timeUtils');
+import * as core from '@actions/core';
+import { getFilterReasons, shouldAlwaysAllowByLabel } from './filters.js';
+import { shouldRunAtCurrentTime } from './timeUtils.js';
 
 /**
  * Creates a summary section title
@@ -61,8 +61,7 @@ async function addWorkflowSummary(allPRs, prsToMerge, mergedPRNumbers, filters, 
       const isInBlackoutPeriod = blackoutPeriods && !shouldRunAtCurrentTime(blackoutPeriods);
       
       let message;
-      if (isInBlackoutPeriod) {
-        message = 'Action is currently in a blackout period. No PRs will be merged during this time.';
+      if (isInBlackoutPeriod) {        message = 'Action is currently in a blackout period. No PRs will be merged during this time.';
       } else if (initialPRs.length > 0) {
         message = `Found ${initialPRs.length} open pull request(s), but none met the basic criteria for auto-merging.`;
       } else {
@@ -254,6 +253,6 @@ async function addWorkflowSummary(allPRs, prsToMerge, mergedPRNumbers, filters, 
   }
 }
 
-module.exports = {
+export {
   addWorkflowSummary
 };
