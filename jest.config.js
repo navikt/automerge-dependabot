@@ -1,4 +1,5 @@
-module.exports = {
+/** @type {import('jest').Config} */
+const jestConfig = {
   clearMocks: true,
   moduleFileExtensions: ['js', 'json'],
   testEnvironment: 'node',
@@ -7,3 +8,5 @@ module.exports = {
   transform: {},
   verbose: true
 };
+
+export default jestConfig;

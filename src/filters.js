@@ -1,4 +1,4 @@
-const core = require('@actions/core');
+import * as core from '@actions/core';
 
 /**
  * Store filtering data with relationships between dependencies and PRs
@@ -261,7 +261,7 @@ function applyFilters(pullRequests, filters) {
   });
 }
 
-module.exports = {
+export {
   applyFilters,
   shouldAlwaysAllow,
   shouldAlwaysAllowByLabel,

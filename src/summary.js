@@ -1,4 +1,6 @@
-const core = require('@actions/core');
+import * as core from '@actions/core';
+import { getFilterReasons, shouldAlwaysAllowByLabel } from './filters.js';
+import { shouldRunAtCurrentTime } from './timeUtils.js';
 
 /**
  * Creates a summary section title
@@ -27,16 +29,14 @@ function createTableHeader(columns) {
  * Adds PR information to the workflow summary
  * 
  * @param {Array} allPRs - Array of all PRs retrieved from GitHub before filtering
- * @param {Array} prsToMerge - Array of PRs after filtering that will be merged
+ * @param {Array} prsToMerge - Array of PRs after filtering that were attempted for merge
+ * @param {Set<number>} mergedPRNumbers - Set of PR numbers that were successfully merged
  * @param {Object} filters - Filtering rules that were applied
  * @param {Array} initialPRs - Array of all initial PRs found (including those filtered in basic criteria)
  * @returns {Promise<void>}
  */
-async function addWorkflowSummary(allPRs, prsToMerge, filters, initialPRs = []) {
+async function addWorkflowSummary(allPRs, prsToMerge, mergedPRNumbers, filters, initialPRs = []) {
   try {
-    // Import filter functions
-    const { getFilterReasons } = require('./filters');
-    
     // Start with a header (or two)
     core.summary.addHeading('Dependabot Automerge Summary', 1);
     core.summary.addHeading('Applied Filters', 2);
@@ -57,13 +57,11 @@ async function addWorkflowSummary(allPRs, prsToMerge, filters, initialPRs = []) 
     
     if (allPRs.length === 0 && prsToMerge.length === 0) {
       // Check if it's a blackout period
-      const { shouldRunAtCurrentTime } = require('./timeUtils');
       const blackoutPeriods = core.getInput('blackout-periods');
       const isInBlackoutPeriod = blackoutPeriods && !shouldRunAtCurrentTime(blackoutPeriods);
       
       let message;
-      if (isInBlackoutPeriod) {
-        message = 'Action is currently in a blackout period. No PRs will be merged during this time.';
+      if (isInBlackoutPeriod) {        message = 'Action is currently in a blackout period. No PRs will be merged during this time.';
       } else if (initialPRs.length > 0) {
         message = `Found ${initialPRs.length} open pull request(s), but none met the basic criteria for auto-merging.`;
       } else {
@@ -76,71 +74,91 @@ async function addWorkflowSummary(allPRs, prsToMerge, filters, initialPRs = []) 
       if (initialPRs.length > allPRs.length) {
         summaryMessage += ` (out of ${initialPRs.length} total open PRs)`;
       }
-      summaryMessage += `, ${prsToMerge.length} will be merged.`;
+      const mergedCount = mergedPRNumbers ? mergedPRNumbers.size : prsToMerge.length;
+      summaryMessage += `, ${mergedCount} merged.`;
       core.summary.addRaw(summaryMessage + '\n\n');
     }
     
     /*
-    * PRs to be Merged
+    * PRs to be Merged — split into merged vs skipped during merge
     */
     if (prsToMerge.length > 0) {
-      core.summary.addRaw(createSectionTitle('Pull Requests to Merge') + '\n\n');
-      
-      // Check if we need to include label information
       const hasLabelFiltering = filters.alwaysAllowLabels && filters.alwaysAllowLabels.length > 0;
-      
-      // Add the table header first
-      if (hasLabelFiltering) {
-        core.summary.addRaw(createTableHeader(['PR', 'Dependency', 'Version', 'Reason']) + '\n');
-      } else {
-        core.summary.addRaw(createTableHeader(['PR', 'Dependency', 'Version']) + '\n');
-      }
-      
-      // Add each PR as a separate row
-      for (const pr of prsToMerge) {
-        // Check if this PR has an allowed label
-        const { shouldAlwaysAllowByLabel } = require('./filters');
-        const allowedByLabel = hasLabelFiltering && shouldAlwaysAllowByLabel(pr.labels, filters.alwaysAllowLabels);
-        
-        // Determine the reason text
-        let reason = '';
-        if (allowedByLabel && pr.labels) {
-          const matchingLabels = pr.labels
-            .filter(label => filters.alwaysAllowLabels.some(allowed => allowed.toLowerCase() === label.name.toLowerCase()))
-            .map(label => label.name);
-          reason = `Allowed by label: ${matchingLabels.join(', ')}`;
-        } else if (hasLabelFiltering) {
-          reason = 'Passed filters';
+
+      const mergedPRs = prsToMerge.filter(pr => mergedPRNumbers && mergedPRNumbers.has(pr.number));
+      const skippedDuringMerge = prsToMerge.filter(pr => !mergedPRNumbers || !mergedPRNumbers.has(pr.number));
+
+      const renderPRTable = (prs, title) => {
+        if (prs.length === 0) return;
+        core.summary.addRaw(createSectionTitle(title) + '\n\n');
+
+        if (hasLabelFiltering) {
+          core.summary.addRaw(createTableHeader(['PR', 'Dependency', 'Version', 'Reason']) + '\n');
+        } else {
+          core.summary.addRaw(createTableHeader(['PR', 'Dependency', 'Version']) + '\n');
         }
-        
-        // For PRs that will be merged, we need to extract dependency info directly
-        if (pr.dependencyInfoList && pr.dependencyInfoList.length > 0) {
-          // Handle multiple dependencies
-          for (const depInfo of pr.dependencyInfoList) {
-            if (depInfo.name) {
-              const tableRow = hasLabelFiltering 
+
+        for (const pr of prs) {
+          const allowedByLabel = hasLabelFiltering && shouldAlwaysAllowByLabel(pr.labels, filters.alwaysAllowLabels);
+          let reason = '';
+          if (allowedByLabel && pr.labels) {
+            const matchingLabels = pr.labels
+              .filter(label => filters.alwaysAllowLabels.some(allowed => allowed.toLowerCase() === label.name.toLowerCase()))
+              .map(label => label.name);
+            reason = `Allowed by label: ${matchingLabels.join(', ')}`;
+          } else if (hasLabelFiltering) {
+            reason = 'Passed filters';
+          }
+
+          const deps = pr.dependencyInfoList && pr.dependencyInfoList.length > 0
+            ? pr.dependencyInfoList.filter(d => d.name)
+            : pr.dependencyInfo && pr.dependencyInfo.name ? [pr.dependencyInfo] : null;
+
+          if (deps) {
+            for (const depInfo of deps) {
+              const tableRow = hasLabelFiltering
                 ? `| [#${pr.number}](${pr.html_url}) | ${depInfo.name} | ${depInfo.toVersion} | ${reason} |`
                 : `| [#${pr.number}](${pr.html_url}) | ${depInfo.name} | ${depInfo.toVersion} |`;
               core.summary.addRaw(tableRow + '\n');
             }
+          } else {
+            const tableRow = hasLabelFiltering
+              ? `| [#${pr.number}](${pr.html_url}) | Unknown | Unknown | ${reason} |`
+              : `| [#${pr.number}](${pr.html_url}) | Unknown | Unknown |`;
+            core.summary.addRaw(tableRow + '\n');
           }
-        } else if (pr.dependencyInfo && pr.dependencyInfo.name) {
-          // Handle single dependency
-          const depInfo = pr.dependencyInfo;
-          const tableRow = hasLabelFiltering
-            ? `| [#${pr.number}](${pr.html_url}) | ${depInfo.name} | ${depInfo.toVersion} | ${reason} |`
-            : `| [#${pr.number}](${pr.html_url}) | ${depInfo.name} | ${depInfo.toVersion} |`;
-          core.summary.addRaw(tableRow + '\n');
-        } else {
-          // Fallback if no dependency info is available
-          const tableRow = hasLabelFiltering
-            ? `| [#${pr.number}](${pr.html_url}) | Unknown | Unknown | ${reason} |`
-            : `| [#${pr.number}](${pr.html_url}) | Unknown | Unknown |`;
-          core.summary.addRaw(tableRow + '\n');
         }
+
+        core.summary.addRaw('\n');
+      };
+
+      renderPRTable(mergedPRs, 'Merged Pull Requests');
+
+      if (skippedDuringMerge.length > 0) {
+        core.summary.addRaw(createSectionTitle('Pull Requests Skipped During Merge') + '\n\n');
+        core.summary.addRaw(createTableHeader(['PR', 'Dependency', 'Version', 'Reason']) + '\n');
+
+        for (const pr of skippedDuringMerge) {
+          const mergeReasons = getFilterReasons(pr.number);
+          const mergeReason = mergeReasons
+            ? mergeReasons.filter(r => r.dependency === 'merge').map(r => r.reason).join('; ')
+            : 'Unknown reason';
+
+          const deps = pr.dependencyInfoList && pr.dependencyInfoList.length > 0
+            ? pr.dependencyInfoList.filter(d => d.name)
+            : pr.dependencyInfo && pr.dependencyInfo.name ? [pr.dependencyInfo] : null;
+
+          if (deps) {
+            for (const depInfo of deps) {
+              core.summary.addRaw(`| [#${pr.number}](${pr.html_url}) | ${depInfo.name} | ${depInfo.toVersion} | ${mergeReason} |\n`);
+            }
+          } else {
+            core.summary.addRaw(`| [#${pr.number}](${pr.html_url}) | Unknown | Unknown | ${mergeReason} |\n`);
+          }
+        }
+
+        core.summary.addRaw('\n');
       }
-      
-      core.summary.addRaw('\n');
     }
     
     /*
@@ -235,6 +253,6 @@ async function addWorkflowSummary(allPRs, prsToMerge, filters, initialPRs = []) 
   }
 }
 
-module.exports = {
+export {
   addWorkflowSummary
 };

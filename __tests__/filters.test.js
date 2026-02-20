@@ -1,14 +1,13 @@
-const { applyFilters, shouldAlwaysAllow } = require('../src/filters');
-const core = require('@actions/core');
+import { jest, describe, beforeEach, test, expect } from '@jest/globals';
+import * as core from '../__fixtures__/core.js';
 
-// Mock @actions/core
-jest.mock('@actions/core');
+jest.unstable_mockModule('@actions/core', () => core);
+
+const { applyFilters, shouldAlwaysAllow } = await import('../src/filters.js');
 
 describe('Filters Module', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    core.debug = jest.fn();
-    core.info = jest.fn();
   });
 
   describe('shouldAlwaysAllow', () => {

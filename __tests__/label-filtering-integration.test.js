@@ -1,4 +1,5 @@
-const { applyFilters } = require('../src/filters');
+import { describe, test, expect } from '@jest/globals';
+import { applyFilters } from '../src/filters.js';
 
 describe('Label Filtering Integration', () => {
   const mockPRWithoutLabel = {

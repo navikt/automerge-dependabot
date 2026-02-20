@@ -1,24 +1,15 @@
-// Mock modules before requiring the code under test
-const mockSummary = {
-  addHeading: jest.fn().mockReturnThis(),
-  addRaw: jest.fn().mockReturnThis(),
-  write: jest.fn().mockResolvedValue(undefined)
-};
+import { jest, describe, beforeEach, test, expect } from '@jest/globals';
+import * as core from '../__fixtures__/core.js';
 
-jest.mock('@actions/core', () => ({
-  info: jest.fn(),
-  debug: jest.fn(),
-  warning: jest.fn(),
+const mockSummary = core.summary;
+
+jest.unstable_mockModule('@actions/core', () => ({
+  ...core,
   summary: mockSummary,
   getInput: jest.fn().mockImplementation(name => name === 'blackout-periods' ? '' : '')
 }));
 
-// Import after mocking
-const core = require('@actions/core');
-const { addWorkflowSummary } = require('../src/summary');
-
-// Mock the filters module
-jest.mock('../src/filters', () => ({
+jest.unstable_mockModule('../src/filters.js', () => ({
   getFilterReasons: jest.fn().mockImplementation(prNumber => {
     if (prNumber === 2) {
       return [
@@ -36,14 +27,19 @@ jest.mock('../src/filters', () => ({
   })
 }));
 
-// Mock the timeUtils module
-jest.mock('../src/timeUtils', () => ({
+jest.unstable_mockModule('../src/timeUtils.js', () => ({
   shouldRunAtCurrentTime: jest.fn().mockReturnValue(true)
 }));
+
+const { addWorkflowSummary } = await import('../src/summary.js');
+const { getFilterReasons } = await import('../src/filters.js');
 
 describe('addWorkflowSummary', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockSummary.addHeading.mockReturnThis();
+    mockSummary.addRaw.mockReturnThis();
+    mockSummary.write.mockResolvedValue(undefined);
   });
 
   test('should include all PRs in the overview table with correct status', async () => {
@@ -99,7 +95,7 @@ describe('addWorkflowSummary', () => {
       semverFilter: ['patch', 'minor']
     };
 
-    await addWorkflowSummary(allPRs, prsToMerge, filters, allPRs);
+    await addWorkflowSummary(allPRs, prsToMerge, new Set([1, 3]), filters, allPRs);
 
     // Check that summary.addRaw was called with the correct PR overview information
     // We're checking that all PRs are included
@@ -139,23 +135,18 @@ describe('addWorkflowSummary', () => {
       content.includes('4.17.2'));
     expect(pr3ExpressCall).toBeTruthy();
     
-    // PR #2 should NOT be in the merge section - find if there's any row that has PR #2
-    // and is listed under the Pull Requests to Merge section
+    // PR #2 should NOT be in the merged section
     const mergeTableLabel = mergeCallContents.find(content => 
-      content.includes('Pull Requests to Merge'));
+      content.includes('Merged Pull Requests'));
     
-    // Only check this if we found the merge section label
     if (mergeTableLabel) {
-      // Find the index of the merge section label
       const mergeSectionIndex = mergeCallContents.indexOf(mergeTableLabel);
       
-      // Check in rows after the merge section header but before the filtered section
       const filteredSectionLabel = mergeCallContents.find(content => 
         content.includes('Filtered Out Dependencies'));
       const filteredSectionIndex = filteredSectionLabel ? 
         mergeCallContents.indexOf(filteredSectionLabel) : mergeCallContents.length;
       
-      // Look for PR #2 between merge section and filtered section
       let pr2InMergeSection = false;
       for (let i = mergeSectionIndex; i < filteredSectionIndex; i++) {
         if (mergeCallContents[i].includes('[#2]') && mergeCallContents[i].includes('react')) {
@@ -222,7 +213,7 @@ describe('addWorkflowSummary', () => {
       semverFilter: ['patch', 'minor']
     };
 
-    await addWorkflowSummary(allPRs, prsToMerge, filters, allPRs);
+    await addWorkflowSummary(allPRs, prsToMerge, new Set(), filters, allPRs);
 
     // Check that summary.addRaw was called
     expect(mockSummary.addRaw).toHaveBeenCalled();
@@ -251,7 +242,6 @@ describe('addWorkflowSummary', () => {
     const prsToMerge = [];
 
     // Mock the getFilterReasons to return basic criteria reasons
-    const { getFilterReasons } = require('../src/filters');
     getFilterReasons.mockImplementation(prNumber => {
       if (prNumber === 5) {
         return [{ dependency: 'general', reason: 'PR is not mergeable' }];
@@ -269,7 +259,7 @@ describe('addWorkflowSummary', () => {
       semverFilter: ['patch', 'minor']
     };
 
-    await addWorkflowSummary(allPRs, prsToMerge, filters, initialPRs);
+    await addWorkflowSummary(allPRs, prsToMerge, new Set(), filters, initialPRs);
 
     // Check that summary was called with content
     expect(mockSummary.addRaw).toHaveBeenCalled();
@@ -319,7 +309,6 @@ describe('addWorkflowSummary', () => {
     const prsToMerge = [allPRs[0]];
 
     // Mock the getFilterReasons to return basic criteria reasons for the filtered PRs
-    const { getFilterReasons } = require('../src/filters');
     getFilterReasons.mockImplementation(prNumber => {
       const basicCriteriaReasons = {
         11: [{ dependency: 'general', reason: 'Not in mergeable state' }],
@@ -339,7 +328,7 @@ describe('addWorkflowSummary', () => {
       semverFilter: ['patch', 'minor']
     };
 
-    await addWorkflowSummary(allPRs, prsToMerge, filters, initialPRs);
+    await addWorkflowSummary(allPRs, prsToMerge, new Set([10]), filters, initialPRs);
 
     // Check that summary was called with content
     expect(mockSummary.addRaw).toHaveBeenCalled();
@@ -411,7 +400,7 @@ describe('addWorkflowSummary', () => {
       semverFilter: ['patch']
     };
 
-    await addWorkflowSummary(allPRs, prsToMerge, filters, allPRs);
+    await addWorkflowSummary(allPRs, prsToMerge, new Set([1, 2]), filters, allPRs);
 
     // Get all the calls to addRaw and combine them
     const summaryContent = mockSummary.addRaw.mock.calls
@@ -463,7 +452,7 @@ describe('addWorkflowSummary', () => {
       semverFilter: ['patch']
     };
 
-    await addWorkflowSummary(allPRs, prsToMerge, filters, allPRs);
+    await addWorkflowSummary(allPRs, prsToMerge, new Set([1]), filters, allPRs);
 
     // Get all the calls to addRaw and combine them
     const summaryContent = mockSummary.addRaw.mock.calls

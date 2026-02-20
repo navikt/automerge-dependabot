@@ -1,16 +1,15 @@
-const core = require('@actions/core');
-const timeUtils = require('../src/timeUtils');
+import { jest, describe, beforeEach, afterEach, test, expect } from '@jest/globals';
+import * as core from '../__fixtures__/core.js';
 
-// Mock dependencies
-jest.mock('@actions/core');
+jest.unstable_mockModule('@actions/core', () => core);
+
+const timeUtils = await import('../src/timeUtils.js');
 
 describe('TimeUtils Module', () => {
   let originalDate;
   
   beforeEach(() => {
     jest.clearAllMocks();
-    core.info = jest.fn();
-    core.warning = jest.fn();
     
     // Store the original Date
     originalDate = global.Date;
