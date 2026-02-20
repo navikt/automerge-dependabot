@@ -139,7 +139,7 @@ When enabled, the action will check if a PR branch is out-of-date with the base 
 
 If the update fails or checks don't pass within the timeout, the PR will be skipped and the action will continue with other PRs.
 
-**Note**: This feature uses the undocumented `mergeable_state` field which GitHub considers "in flux". While widely used and stable in practice, it may change without notice.
+**Note**: This feature relies on the `mergeable_state` field from GitHub's pull request API, which GitHub considers "in flux". While widely used and stable in practice, its behavior may change without notice.
 
 ### `max-update-wait-seconds`
 
