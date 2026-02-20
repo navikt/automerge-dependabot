@@ -21,10 +21,10 @@ automerge-dependabot <options>
 ### CLI Options
 
 ```bash
-automerge-dependabot [options] <url>
+automerge-dependabot run <repository> [options]
 
 Arguments:
-  url                            GitHub repository URL (e.g., https://github.com/owner/repo)
+  repository                     Repository in owner/repo format (e.g., navikt/appsec-internal-test)
 
 Options:
   -t, --token <token>            GitHub token (or use GITHUB_TOKEN env var)
@@ -65,11 +65,11 @@ gh auth login
 #### Use with CLI Tool
 ```bash
 # Use GitHub CLI to provide token securely
-automerge-dependabot https://github.com/owner/repo --token "$(gh auth print-token)"
+automerge-dependabot run owner/repo --token "$(gh auth token)"
 
 # Or set as environment variable
-export GITHUB_TOKEN=$(gh auth print-token)
-automerge-dependabot https://github.com/owner/repo
+export GITHUB_TOKEN=$(gh auth token)
+automerge-dependabot run owner/repo
 ```
 
 #### Benefits of GitHub CLI Authentication
@@ -89,14 +89,14 @@ automerge-dependabot auth-status
 **Dry run analysis** (default behavior, won't actually merge):
 ```bash
 # Using GitHub CLI (recommended for security)
-automerge-dependabot https://github.com/owner/repo --token "$(gh auth print-token)"
+automerge-dependabot run owner/repo --token "$(gh auth token)"
 
 # Using environment variable for token
 export GITHUB_TOKEN=your_token_here
-automerge-dependabot https://github.com/owner/repo
+automerge-dependabot run owner/repo
 
 # Or pass token directly (less secure)
-automerge-dependabot https://github.com/owner/repo --token your_token_here
+automerge-dependabot run owner/repo --token your_token_here
 ```
 
 **Check authentication status**:
@@ -106,12 +106,12 @@ automerge-dependabot auth-status
 
 **Actually merge PRs**:
 ```bash
-automerge-dependabot https://github.com/owner/repo --no-dry-run
+automerge-dependabot run owner/repo --no-dry-run
 ```
 
 **Advanced filtering**:
 ```bash
-automerge-dependabot https://github.com/owner/repo \
+automerge-dependabot run owner/repo \
   --minimum-age 3 \
   --ignored-dependencies "react,webpack" \
   --semver-filter "patch" \
@@ -121,7 +121,7 @@ automerge-dependabot https://github.com/owner/repo \
 
 **Test during blackout periods**:
 ```bash
-automerge-dependabot https://github.com/owner/repo \
+automerge-dependabot run owner/repo \
   --blackout-periods "Sat,Sun,Dec 24-Jan 5"
 ```
 
