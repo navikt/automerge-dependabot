@@ -2,7 +2,7 @@ const core = require('@actions/core');
 const github = require('@actions/github');
 const { findMergeablePRs, approvePullRequest, updatePRBranch, waitForChecksAfterUpdate } = require('./pullRequests');
 const { shouldRunAtCurrentTime } = require('./timeUtils');
-const { applyFilters } = require('./filters');
+const { applyFilters, recordFilterReason } = require('./filters');
 const { addWorkflowSummary } = require('./summary');
 
 async function run() {
@@ -54,6 +54,7 @@ async function run() {
     let filteredPRs = [];
     let initialPRs = [];
     let mergedPRCount = 0;
+    const mergedPRNumbers = new Set();
 
     // Check if the action should run at the current time
     if (!shouldRunAtCurrentTime(blackoutPeriods)) {
@@ -126,6 +127,7 @@ async function run() {
             
             if (!updateSuccess) {
               core.warning(`Skipping merge of PR #${pr.number} due to branch update failure`);
+              recordFilterReason(pr.number, 'merge', 'Branch update failed');
               continue;
             }
             
@@ -141,6 +143,7 @@ async function run() {
             
             if (!checksPass) {
               core.warning(`Skipping merge of PR #${pr.number} because checks did not pass after branch update`);
+              recordFilterReason(pr.number, 'merge', 'Checks did not pass after branch update');
               continue;
             }
           }
@@ -157,6 +160,7 @@ async function run() {
               core.warning(
                 `Skipping merge of PR #${pr.number} due to approval failure`
               );
+              recordFilterReason(pr.number, 'merge', 'Auto-approval failed');
               continue;
             }
           }
@@ -174,6 +178,7 @@ async function run() {
                 
                 core.info(`Successfully merged PR #${pr.number}`);
                 mergedPRCount++;
+                mergedPRNumbers.add(pr.number);
 
                 // Add a delay after successful merge to allow GitHub to process the changes
                 // This helps prevent race conditions with subsequent PRs
@@ -197,6 +202,7 @@ async function run() {
                   
                   if (!currentPRDetails || !currentPRDetails.mergeable) {
                     core.warning(`PR #${pr.number} is no longer mergeable after base branch modification. Skipping.`);
+                    recordFilterReason(pr.number, 'merge', 'No longer mergeable after base branch modification');
                     continue;
                   }
                   
@@ -211,6 +217,7 @@ async function run() {
                   
                   core.info(`Successfully merged PR #${pr.number} on retry`);
                   mergedPRCount++;
+                  mergedPRNumbers.add(pr.number);
 
                   // Add a delay after successful merge
                   if (retryDelayMs > 0) {
@@ -239,6 +246,7 @@ async function run() {
               }
             } catch (error) {
               core.warning(`Failed to merge PR #${pr.number}: ${error.message}`);
+              recordFilterReason(pr.number, 'merge', `Merge failed: ${error.message}`);
             }
           }
         }
@@ -246,7 +254,7 @@ async function run() {
     }
     
     // Always add workflow summary at the end with the final state
-    await addWorkflowSummary(pullRequests, filteredPRs, filterOptions, initialPRs);
+    await addWorkflowSummary(pullRequests, filteredPRs, mergedPRNumbers, filterOptions, initialPRs);
     
     // Set the output for the number of merged PRs
     core.setOutput('merged-pr-count', mergedPRCount);
