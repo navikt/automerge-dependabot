@@ -1,18 +1,17 @@
-// Define mocks before imports
+import { jest, describe, beforeEach, test, expect } from '@jest/globals';
+import * as core from '../__fixtures__/core.js';
+import * as github from '../__fixtures__/github.js';
+
 const mockAddWorkflowSummary = jest.fn().mockResolvedValue({});
 
-// Mock modules
-jest.mock('../src/summary', () => ({
-  addWorkflowSummary: mockAddWorkflowSummary,
-  getSummaryContent: jest.fn()
+jest.unstable_mockModule('../src/summary.js', () => ({
+  addWorkflowSummary: mockAddWorkflowSummary
 }));
-jest.mock('@actions/core');
-jest.mock('@actions/github');
+jest.unstable_mockModule('@actions/core', () => core);
+jest.unstable_mockModule('@actions/github', () => github);
 
-// Now import modules
-const core = require('@actions/core');
-const { run } = require('../src/index');
-const { setupTestEnvironment, createMockPR } = require('./helpers/mockSetup');
+const { run } = await import('../src/index.js');
+const { setupTestEnvironment, createMockPR } = await import('./helpers/mockSetup.js');
 
 describe('npm group dependency updates', () => {
   let mockOctokit;
@@ -32,7 +31,7 @@ describe('npm group dependency updates', () => {
 
   beforeEach(() => {
     // Set up test environment with default configuration
-    const result = setupTestEnvironment({
+    const result = setupTestEnvironment(core, github, {
       inputOverrides: {
         "ignored-dependencies": "react-scripts", // Ignore react-scripts, which has a version downgrade
         "semver-filter": "patch,minor"
@@ -165,7 +164,7 @@ describe('npm group dependency updates', () => {
     });
 
     // Check the semver change detection function directly
-    const { determineSemverChange } = require('../src/pullRequests');
+    const { determineSemverChange } = await import('../src/pullRequests.js');
     const fromVersion = '5.0.1';  // react-scripts original version
     const toVersion = '4.0.0';    // react-scripts downgraded version
     const semverChangeType = determineSemverChange(fromVersion, toVersion);

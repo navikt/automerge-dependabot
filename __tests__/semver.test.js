@@ -1,4 +1,11 @@
-const { extractDependencyInfo, determineSemverChange } = require('../src/pullRequests');
+import { jest, describe, test, expect } from '@jest/globals';
+
+jest.unstable_mockModule('@actions/core', () => ({
+  debug: jest.fn(),
+  warning: jest.fn()
+}));
+
+const { extractDependencyInfo, determineSemverChange } = await import('../src/pullRequests.js');
 
 describe('Semver Handling', () => {
   test('should handle simple version formats correctly', () => {

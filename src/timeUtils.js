@@ -1,4 +1,4 @@
-const core = require('@actions/core');
+import * as core from '@actions/core';
 
 /**
  * Format date to ISO 8601 string
@@ -362,7 +362,7 @@ function isInBlackoutPeriod(currentTime, period) {
   return false;
 }
 
-module.exports = {
+export {
   shouldRunAtCurrentTime,
   subtractDays,
   isAfter,

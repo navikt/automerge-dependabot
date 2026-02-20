@@ -1,4 +1,6 @@
-const core = require('@actions/core');
+import * as core from '@actions/core';
+import { getFilterReasons, shouldAlwaysAllowByLabel } from './filters.js';
+import { shouldRunAtCurrentTime } from './timeUtils.js';
 
 /**
  * Creates a summary section title
@@ -34,9 +36,6 @@ function createTableHeader(columns) {
  */
 async function addWorkflowSummary(allPRs, prsToMerge, filters, initialPRs = []) {
   try {
-    // Import filter functions
-    const { getFilterReasons } = require('./filters');
-    
     // Start with a header (or two)
     core.summary.addHeading('Dependabot Automerge Summary', 1);
     core.summary.addHeading('Applied Filters', 2);
@@ -57,13 +56,11 @@ async function addWorkflowSummary(allPRs, prsToMerge, filters, initialPRs = []) 
     
     if (allPRs.length === 0 && prsToMerge.length === 0) {
       // Check if it's a blackout period
-      const { shouldRunAtCurrentTime } = require('./timeUtils');
       const blackoutPeriods = core.getInput('blackout-periods');
       const isInBlackoutPeriod = blackoutPeriods && !shouldRunAtCurrentTime(blackoutPeriods);
       
       let message;
-      if (isInBlackoutPeriod) {
-        message = 'Action is currently in a blackout period. No PRs will be merged during this time.';
+      if (isInBlackoutPeriod) {        message = 'Action is currently in a blackout period. No PRs will be merged during this time.';
       } else if (initialPRs.length > 0) {
         message = `Found ${initialPRs.length} open pull request(s), but none met the basic criteria for auto-merging.`;
       } else {
@@ -99,7 +96,6 @@ async function addWorkflowSummary(allPRs, prsToMerge, filters, initialPRs = []) 
       // Add each PR as a separate row
       for (const pr of prsToMerge) {
         // Check if this PR has an allowed label
-        const { shouldAlwaysAllowByLabel } = require('./filters');
         const allowedByLabel = hasLabelFiltering && shouldAlwaysAllowByLabel(pr.labels, filters.alwaysAllowLabels);
         
         // Determine the reason text
@@ -235,6 +231,6 @@ async function addWorkflowSummary(allPRs, prsToMerge, filters, initialPRs = []) 
   }
 }
 
-module.exports = {
+export {
   addWorkflowSummary
 };

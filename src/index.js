@@ -1,9 +1,10 @@
-const core = require('@actions/core');
-const github = require('@actions/github');
-const { findMergeablePRs, approvePullRequest } = require('./pullRequests');
-const { shouldRunAtCurrentTime } = require('./timeUtils');
-const { applyFilters } = require('./filters');
-const { addWorkflowSummary } = require('./summary');
+import * as core from '@actions/core';
+import * as github from '@actions/github';
+import { fileURLToPath } from 'node:url';
+import { findMergeablePRs, approvePullRequest, checkPRMergeability } from './pullRequests.js';
+import { shouldRunAtCurrentTime } from './timeUtils.js';
+import { applyFilters } from './filters.js';
+import { addWorkflowSummary } from './summary.js';
 
 async function run() {
   try {
@@ -156,7 +157,6 @@ async function run() {
                   core.warning(`PR #${pr.number} failed due to base branch modification. Re-verifying mergeability and retrying...`);
                   
                   // Re-verify PR mergeability after base branch modification
-                  const { checkPRMergeability } = require('./pullRequests');
                   const currentPRDetails = await checkPRMergeability(octokit, context.repo.owner, context.repo.repo, pr.number, retryDelayMs);
                   
                   if (!currentPRDetails || !currentPRDetails.mergeable) {
@@ -225,7 +225,7 @@ async function run() {
 }
 
 // Run the action
-if (require.main === module) {
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
   (async () => {
     try {
       const mergedPRCount = await run();
@@ -244,4 +244,4 @@ if (require.main === module) {
 }
 
 // Export for testing
-module.exports = { run };
+export { run };

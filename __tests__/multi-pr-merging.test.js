@@ -1,56 +1,24 @@
-// Define mocks before imports
+import { jest, describe, beforeEach, test, expect } from '@jest/globals';
+import * as core from '../__fixtures__/core.js';
+import * as github from '../__fixtures__/github.js';
+
 const mockAddWorkflowSummary = jest.fn().mockResolvedValue({});
 
-// Mock modules
-jest.mock('../src/summary', () => ({
-  addWorkflowSummary: mockAddWorkflowSummary,
-  getSummaryContent: jest.fn()
+jest.unstable_mockModule('../src/summary.js', () => ({
+  addWorkflowSummary: mockAddWorkflowSummary
 }));
-jest.mock('@actions/core');
-jest.mock('@actions/github');
-jest.mock('path', () => {
-  const originalPath = jest.requireActual('path');
-  return {
-    ...originalPath,
-    join: jest.fn((...args) => originalPath.join(...args)),
-    resolve: jest.fn((...args) => originalPath.resolve(...args))
-  };
-});
-jest.mock('fs', () => {
-  const originalFs = jest.requireActual('fs');
-  return {
-    ...originalFs,
-    readFileSync: jest.fn((path) => {
-      // Return mock content for the PR files
-      if (path.includes('pr11.md')) {
-        return originalFs.readFileSync('__tests__/data/pr11.md', 'utf8');
-      }
-      if (path.includes('pr12.md')) {
-        return originalFs.readFileSync('__tests__/data/pr12.md', 'utf8');
-      }
-      if (path.includes('pr13.md')) {
-        return originalFs.readFileSync('__tests__/data/pr13.md', 'utf8');
-      }
-      if (path.includes('pr14.md')) {
-        return originalFs.readFileSync('__tests__/data/pr14.md', 'utf8');
-      }
-      return originalFs.readFileSync(path);
-    })
-  };
-});
+jest.unstable_mockModule('@actions/core', () => core);
+jest.unstable_mockModule('@actions/github', () => github);
 
-// Now import modules
-const core = require('@actions/core');
-const { run } = require('../src/index');
-const { setupTestEnvironment, createMockPR } = require('./helpers/mockSetup');
-const fs = require('fs');
+const { run } = await import('../src/index.js');
+const { setupTestEnvironment, createMockPR } = await import('./helpers/mockSetup.js');
 
 describe('Handle when base ref changes after merging first PR', () => {
   let mockOctokit;
 
   beforeEach(() => {
     // Set up test environment with filtering configuration
-    const result = setupTestEnvironment({
+    const result = setupTestEnvironment(core, github, {
       inputOverrides: {
         "retry-delay-ms": "20" // Fast retry for testing
       }
@@ -85,10 +53,8 @@ describe('Handle when base ref changes after merging first PR', () => {
       ]
     });
 
-    // Track merge and re-verification call counts
+    // Track merge call counts
     let mergeCallCount = 0;
-    let checkPR2Calls = 0;
-    let checkPR3Calls = 0;
 
     // Mock the merge attempts - PR 1 succeeds, PR 2 fails once then succeeds, PR 3 fails once then succeeds
     mockOctokit.rest.pulls.merge.mockImplementation(({ pull_number }) => {
@@ -118,23 +84,6 @@ describe('Handle when base ref changes after merging first PR', () => {
       return Promise.resolve();
     });
 
-    // Mock checkPRMergeability to always return mergeable after re-verification
-    // This simulates the scenario where PRs become mergeable again after retries
-    const mockCheckPRMergeability = jest.fn().mockImplementation((octokit, owner, repo, pullNumber, retryDelayMs) => {
-      if (pullNumber === 2) {
-        checkPR2Calls++;
-      } else if (pullNumber === 3) {
-        checkPR3Calls++;
-      }
-      
-      // All PRs are eventually mergeable after re-verification
-      return Promise.resolve({ number: pullNumber, mergeable: true, mergeable_state: 'clean' });
-    });
-
-    // Replace the checkPRMergeability function in the pullRequests module
-    const pullRequestsModule = require('../src/pullRequests');
-    pullRequestsModule.checkPRMergeability = mockCheckPRMergeability;
-
     // Run the action
     await run();
 
@@ -156,9 +105,11 @@ describe('Handle when base ref changes after merging first PR', () => {
       expect.objectContaining({ pull_number: 3, merge_method: 'merge' })
     );
 
-    // Verify re-verification was called for PR 2 and PR 3 due to base branch modification
-    expect(checkPR2Calls).toBe(1);
-    expect(checkPR3Calls).toBe(1);
+    // Verify re-verification was called for PR 2 and PR 3 (each gets called once in findMergeablePRs + once in retry = 2)
+    const getPR2Calls = mockOctokit.rest.pulls.get.mock.calls.filter(c => c[0].pull_number === 2).length;
+    const getPR3Calls = mockOctokit.rest.pulls.get.mock.calls.filter(c => c[0].pull_number === 3).length;
+    expect(getPR2Calls).toBe(2);
+    expect(getPR3Calls).toBe(2);
 
     // Verify success messages were logged for all merged PRs
     expect(core.info).toHaveBeenCalledWith(expect.stringContaining('Successfully merged PR #1'));

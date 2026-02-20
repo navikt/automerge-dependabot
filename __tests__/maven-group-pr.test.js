@@ -1,6 +1,17 @@
-const fs = require('fs');
-const path = require('path');
-const { extractMultipleDependencyInfo } = require('../src/pullRequests');
+import { jest, describe, test, expect, beforeAll } from '@jest/globals';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'node:url';
+
+jest.unstable_mockModule('@actions/core', () => ({
+  debug: jest.fn(),
+  warning: jest.fn(),
+  info: jest.fn()
+}));
+
+const { extractMultipleDependencyInfo } = await import('../src/pullRequests.js');
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 describe('Maven Group PR Dependency Extraction', () => {
   let pr13Title;

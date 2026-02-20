@@ -1,9 +1,10 @@
-const { findMergeablePRs, extractMultipleDependencyInfo, checkPRMergeability, approvePullRequest } = require('../src/pullRequests');
-const core = require('@actions/core');
-const { setupTestEnvironment, createMockPR } = require('./helpers/mockSetup');
+import { jest, describe, beforeEach, afterEach, test, expect } from '@jest/globals';
+import * as core from '../__fixtures__/core.js';
 
-// Mock dependencies
-jest.mock('@actions/core');
+jest.unstable_mockModule('@actions/core', () => core);
+
+const { findMergeablePRs, extractMultipleDependencyInfo, checkPRMergeability, approvePullRequest } = await import('../src/pullRequests.js');
+const { setupTestEnvironment, createMockPR } = await import('./helpers/mockSetup.js');
 
 describe('PullRequests Module', () => {
   let originalDate;
@@ -11,15 +12,12 @@ describe('PullRequests Module', () => {
   
   beforeEach(() => {
     jest.clearAllMocks();
-    core.info = jest.fn();
-    core.debug = jest.fn();
-    core.warning = jest.fn();
     
     // Store the original Date
     originalDate = global.Date;
     
     // Set up basic test environment
-    const result = setupTestEnvironment({ mockResponses: false });
+    const result = setupTestEnvironment(core, null, { mockResponses: false });
     mockOctokit = result.mockOctokit;
   });
   
