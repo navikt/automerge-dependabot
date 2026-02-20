@@ -501,7 +501,11 @@ async function waitForChecksAfterUpdate(octokit, owner, repo, pullNumber, maxWai
 
         const statusFailed = combinedStatus.state === 'failure';
         const anyCheckFailed = checkRuns.some(run =>
-          run.conclusion === 'failure' || run.conclusion === 'cancelled' || run.conclusion === 'timed_out'
+          run.conclusion === 'failure' ||
+          run.conclusion === 'cancelled' ||
+          run.conclusion === 'timed_out' ||
+          run.conclusion === 'action_required' ||
+          run.conclusion === 'stale'
         );
         const anyCheckPending = checkRuns.some(run =>
           run.status === 'queued' || run.status === 'in_progress'

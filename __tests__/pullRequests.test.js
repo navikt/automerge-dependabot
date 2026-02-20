@@ -1019,6 +1019,30 @@ Updates dependency-B from 2.1.0 to 2.1.1
       expect(core.warning).toHaveBeenCalledWith('Checks failed for PR #1 after branch update');
     });
 
+    test.each([
+      ['cancelled'],
+      ['timed_out'],
+      ['action_required'],
+      ['stale'],
+    ])('should return false when a check run has conclusion "%s"', async (conclusion) => {
+      const mockOctokit = {
+        rest: {
+          pulls: { get: jest.fn().mockResolvedValue(prMergeable) },
+          repos: { getCombinedStatusForRef: jest.fn().mockResolvedValue({ data: { state: 'success', total_count: 0 } }) },
+          checks: {
+            listForRef: jest.fn().mockResolvedValue({
+              data: { check_runs: [{ status: 'completed', conclusion }] }
+            })
+          }
+        }
+      };
+
+      const result = await waitForChecksAfterUpdate(mockOctokit, 'owner', 'repo', 1, 60, 10);
+
+      expect(result).toBe(false);
+      expect(core.warning).toHaveBeenCalledWith('Checks failed for PR #1 after branch update');
+    });
+
     test('should return false when PR becomes unmergeable', async () => {
       const mockOctokit = {
         rest: {
