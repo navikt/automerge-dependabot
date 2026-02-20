@@ -34,9 +34,10 @@ This tool can be used in two ways:
 **Required** The name of the environment variable that contains the GitHub token. Default: `GITHUB_TOKEN`.
 
 The token requires the following permissions:
-- `contents: write` - To allow the merge operation to modify repository contents
-- `pull-requests: read` - To allow the action to find pull-requests
-- `statuses: read` - To allow the action to view commit status for a given ref (mergeability)
+- `contents: write` - To perform the merge commit
+- `pull-requests: write` - To merge PRs, approve PRs (`auto-approve`), and update branches (`update-branch-before-merge`)
+- `checks: read` - To read check run results when using `update-branch-before-merge`
+- `statuses: read` - To read commit statuses when using `update-branch-before-merge`
 
 Note: Using GITHUB_TOKEN will not trigger on.push events (Ref: [github docs](https://docs.github.com/en/actions/concepts/security/github_token#when-github_token-triggers-workflow-runs)), recommend using a [github app token](https://github.com/actions/create-github-app-token) & merge-method `merge` to merge as App-login. See example below.
 
@@ -166,9 +167,10 @@ jobs:
   automerge:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # Required to merge PRs
-      pull-requests: read # Required for private/internal repos
-      statuses: read # Required for private/internal repos
+      contents: write        # Required to perform the merge commit
+      pull-requests: write   # Required to merge PRs (and approve if auto-approve is enabled)
+      checks: read           # Required to read check runs (update-branch-before-merge)
+      statuses: read         # Required to read commit statuses (update-branch-before-merge)
     steps:
       - name: Automerge Dependabot PRs
         uses: navikt/automerge-dependabot@v1.2.2
