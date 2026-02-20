@@ -1,27 +1,21 @@
-import { Command } from 'commander';
+import { parseArgs } from 'node:util';
 import * as github from '@actions/github';
 import { fileURLToPath } from 'node:url';
-import { findMergeablePRs } from './pullRequests.js';
+import { findMergeablePRs, approvePullRequest, updatePRBranch, waitForChecksAfterUpdate } from './pullRequests.js';
 import { shouldRunAtCurrentTime } from './timeUtils.js';
 import { applyFilters, getAllFilterReasons } from './filters.js';
 
 /**
- * Parse GitHub repository URL to extract owner and repo
- * @param {string} url - GitHub repository URL
+ * Parse owner/repo string
+ * @param {string} repository - Repository in "owner/repo" format
  * @returns {Object} Object containing owner and repo
  */
-function parseGitHubUrl(url) {
-  const githubUrlRegex = /^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?(?:\/.*)?$/;
-  const match = url.match(githubUrlRegex);
-  
+function parseRepository(repository) {
+  const match = repository && repository.match(/^([^/]+)\/([^/]+)$/);
   if (!match) {
-    throw new Error('Invalid GitHub repository URL. Expected format: https://github.com/owner/repo');
+    throw new Error('Invalid repository format. Expected: owner/repo (e.g., navikt/appsec-internal-test)');
   }
-  
-  return {
-    owner: match[1],
-    repo: match[2]
-  };
+  return { owner: match[1], repo: match[2] };
 }
 
 /**
@@ -108,7 +102,7 @@ function formatPRList(pullRequests, title) {
 async function runCli(options) {
   try {
     // Parse GitHub URL
-    const { owner, repo } = parseGitHubUrl(options.url);
+    const { owner, repo } = parseRepository(options.url);
     console.log(`🔍 Analyzing repository: ${owner}/${repo}`);
     
     // Setup authentication
@@ -118,13 +112,13 @@ async function runCli(options) {
       throw new Error('GitHub token not provided. Options:\n' +
         '  1. Use --token option with a personal access token\n' +
         '  2. Set GITHUB_TOKEN environment variable\n' +
-        '  3. Use GitHub CLI: --token "$(gh auth print-token)"\n' +
-        '  4. Use GitHub CLI with environment: export GITHUB_TOKEN=$(gh auth print-token)\n' +
+        '  3. Use GitHub CLI: --token "$(gh auth token)"\n' +
+        '  4. Use GitHub CLI with environment: export GITHUB_TOKEN=$(gh auth token)\n' +
         '\n' +
         '💡 For secure token management, consider using GitHub CLI (gh):\n' +
         '   • Install: https://cli.github.com/\n' +
         '   • Login: gh auth login\n' +
-        '   • Usage: automerge-dependabot run <repo-url> --token "$(gh auth print-token)"');
+        '   • Usage: automerge-dependabot run <repo-url> --token "$(gh auth token)"');
     }
     
     // Setup mock modules for CLI usage
@@ -147,6 +141,8 @@ async function runCli(options) {
     console.log(`   • Merge method: ${options.mergeMethod}`);
     console.log(`   • Dry run: ${options.dryRun}`);
     console.log(`   • Semver filter: ${filterOptions.semverFilter.join(', ')}`);
+    console.log(`   • Auto-approve: ${options.autoApprove}`);
+    console.log(`   • Update branch before merge: ${options.updateBranchBeforeMerge}`);
     if (filterOptions.ignoredDependencies.length > 0) {
       console.log(`   • Ignored dependencies: ${filterOptions.ignoredDependencies.join(', ')}`);
     }
@@ -290,16 +286,37 @@ async function runCli(options) {
       console.log(`\n🚀 Merging ${filteredPRs.length} PR(s)...`);
       
       for (const pr of filteredPRs) {
+        console.log(`\n⏳ Merging PR #${pr.number}: ${pr.title}`);
+
+        if (options.updateBranchBeforeMerge && pr.prDetails && pr.prDetails.mergeable_state === 'behind') {
+          console.log(`   Updating branch for PR #${pr.number}...`);
+          const updateSuccess = await updatePRBranch(octokit, owner, repo, pr.number);
+          if (!updateSuccess) {
+            console.warn(`⚠️  Skipping PR #${pr.number}: branch update failed`);
+            continue;
+          }
+          const checksPass = await waitForChecksAfterUpdate(octokit, owner, repo, pr.number, options.maxUpdateWaitSeconds, options.retryDelayMs);
+          if (!checksPass) {
+            console.warn(`⚠️  Skipping PR #${pr.number}: checks did not pass after branch update`);
+            continue;
+          }
+        }
+
+        if (options.autoApprove) {
+          const approved = await approvePullRequest(octokit, owner, repo, pr.number);
+          if (!approved) {
+            console.warn(`⚠️  Skipping PR #${pr.number}: auto-approval failed`);
+            continue;
+          }
+        }
+
         try {
-          console.log(`\n⏳ Merging PR #${pr.number}: ${pr.title}`);
-          
           await octokit.rest.pulls.merge({
             owner,
             repo,
             pull_number: pr.number,
             merge_method: options.mergeMethod
           });
-          
           console.log(`✅ Successfully merged PR #${pr.number}`);
         } catch (error) {
           console.error(`❌ Failed to merge PR #${pr.number}: ${error.message}`);
@@ -316,89 +333,142 @@ async function runCli(options) {
 }
 
 /**
+ * Print CLI usage information
+ */
+function printHelp() {
+  console.log(`Usage: automerge-dependabot <command> [options]
+
+Commands:
+  run <repository>      Analyze and optionally merge Dependabot pull requests (e.g., owner/repo)
+  auth-status    Check authentication status and show secure setup options
+
+Options for 'run':
+  -t, --token <token>                GitHub token (or use GITHUB_TOKEN env var)
+  --minimum-age <days>               Minimum age of PR in days before merging (default: 0)
+  --blackout-periods <periods>       Blackout periods when action should not run
+  --ignored-dependencies <deps>      Comma-separated list of dependencies to ignore
+  --always-allow <patterns>          Comma-separated list of patterns to always allow
+  --always-allow-labels <labels>     Comma-separated list of PR labels that bypass all filters
+  --ignored-versions <versions>      Comma-separated list of specific versions to ignore
+  --semver-filter <levels>           Semver levels to allow (default: patch,minor)
+  --merge-method <method>            Merge method: merge, squash, rebase (default: merge)
+  --retry-delay-ms <ms>              Delay in ms between retries (default: 2000)
+  --auto-approve                     Automatically approve PRs before merging
+  --update-branch-before-merge       Update PR branches behind the base branch before merging
+  --max-update-wait-seconds <secs>   Max seconds to wait for checks after branch update (default: 300)
+  --no-dry-run                       Actually merge PRs (default is dry run)
+  -v, --verbose                      Enable verbose logging
+`);
+}
+
+/**
  * Setup and run the CLI
  */
-function main() {
-  const program = new Command();
-  
-  program
-    .name('automerge-dependabot')
-    .description('CLI tool to analyze and optionally merge Dependabot pull requests')
-    .version('1.0.0');
+async function main() {
+  const args = process.argv.slice(2);
+  const command = args[0];
 
-  // Main command
-  program
-    .command('run')
-    .description('Analyze and optionally merge Dependabot pull requests')
-    .argument('<url>', 'GitHub repository URL (e.g., https://github.com/owner/repo)')
-    .option('-t, --token <token>', 'GitHub token (or use GITHUB_TOKEN env var, or use "$(gh auth print-token)" for secure CLI authentication)')
-    .option('--minimum-age <days>', 'Minimum age of PR in days before merging', '0')
-    .option('--blackout-periods <periods>', 'Blackout periods when action should not run')
-    .option('--ignored-dependencies <deps>', 'Comma-separated list of dependencies to ignore')
-    .option('--always-allow <patterns>', 'Comma-separated list of patterns to always allow')
-    .option('--always-allow-labels <labels>', 'Comma-separated list of PR labels that bypass all filters')
-    .option('--ignored-versions <versions>', 'Comma-separated list of specific versions to ignore')
-    .option('--semver-filter <levels>', 'Semver levels to allow (major,minor,patch,unknown)', 'patch,minor')
-    .option('--merge-method <method>', 'Merge method (merge, squash, rebase)', 'merge')
-    .option('--retry-delay-ms <ms>', 'Delay in milliseconds between retries when checking PR mergeability', '2000')
-    .option('--no-dry-run', 'Actually merge PRs (default is dry run)')
-    .option('-v, --verbose', 'Enable verbose logging')
-    .action(async (url, options) => {
-      // Convert string options to appropriate types
-      options.url = url;
-      options.minimumAge = parseInt(options.minimumAge, 10);
-      options.retryDelayMs = parseInt(options.retryDelayMs, 10) || 10000;
-      options.dryRun = !options.noDryRun; // Commander converts --no-dry-run to noDryRun: true
-      
-      await runCli(options);
+  if (command === 'auth-status') {
+    console.log('🔑 Checking authentication status...\n');
+
+    const { values: authValues } = parseArgs({
+      args: args.slice(1),
+      options: { token: { type: 'string', short: 't' } },
+      strict: false,
     });
 
-  // Auth status command
-  program
-    .command('auth-status')
-    .description('Check authentication status and show secure setup options')
-    .action(() => {
-      console.log('🔑 Checking authentication status...\n');
-      
-      // Check environment variable
-      const envToken = process.env.GITHUB_TOKEN;
-      if (envToken) {
-        console.log('✅ GITHUB_TOKEN environment variable is set');
-        console.log(`   Token length: ${envToken.length} characters`);
-        console.log(`   Token prefix: ${envToken.substring(0, 8)}...`);
-      } else {
-        console.log('❌ GITHUB_TOKEN environment variable is not set');
-      }
-      
-      console.log('\n📋 Authentication options (in priority order):');
-      console.log('  1. --token option with a personal access token');
-      console.log('  2. GITHUB_TOKEN environment variable');
-      
-      console.log('\n🛡️  Secure authentication with GitHub CLI:');
-      console.log('  • Install GitHub CLI: https://cli.github.com/');
-      console.log('  • Login to GitHub: gh auth login');
-      console.log('  • Use with CLI tool: --token "$(gh auth print-token)"');
-      console.log('  • Set environment: export GITHUB_TOKEN=$(gh auth print-token)');
-      
-      console.log('\n💡 Benefits of using GitHub CLI:');
-      console.log('  • No hardcoded tokens in scripts or history');
-      console.log('  • Automatic token refresh when needed');
-      console.log('  • Works with SSO and 2FA enabled organizations');
-      console.log('  • Secure credential storage');
-      
-      console.log('\n🔗 Example usage:');
-      console.log('  automerge-dependabot run https://github.com/owner/repo --token "$(gh auth print-token)"');
-    });
+    const cliToken = authValues['token'];
+    const envToken = process.env.GITHUB_TOKEN;
+    const token = cliToken || envToken;
 
-  // If no command specified, default to 'run' for backward compatibility
-  if (process.argv.length <= 2 || !['run', 'auth-status'].includes(process.argv[2])) {
-    // Insert 'run' command if not present
-    if (process.argv.length > 2 && !process.argv[2].startsWith('-')) {
-      process.argv.splice(2, 0, 'run');
+    if (cliToken) {
+      console.log('✅ Token provided via --token option');
+      console.log(`   Token length: ${cliToken.length} characters`);
+      console.log(`   Token prefix: ${cliToken.substring(0, 8)}...`);
+    } else if (envToken) {
+      console.log('✅ GITHUB_TOKEN environment variable is set');
+      console.log(`   Token length: ${envToken.length} characters`);
+      console.log(`   Token prefix: ${envToken.substring(0, 8)}...`);
+    } else {
+      console.log('❌ No token found (--token option or GITHUB_TOKEN env var)');
     }
+
+    if (token) {
+      console.log('\n✅ Authentication is configured.');
+    } else {
+      console.log('\n❌ Authentication is not configured.');
+    }
+
+    console.log('\n📋 Authentication options (in priority order):');
+    console.log('  1. --token option with a personal access token');
+    console.log('  2. GITHUB_TOKEN environment variable');
+
+    console.log('\n🛡️  Secure authentication with GitHub CLI:');
+    console.log('  • Install GitHub CLI: https://cli.github.com/');
+    console.log('  • Login to GitHub: gh auth login');
+    console.log('  • Use with CLI tool: --token "$(gh auth token)"');
+    console.log('  • Set environment: export GITHUB_TOKEN=$(gh auth token)');
+
+    console.log('\n💡 Benefits of using GitHub CLI:');
+    console.log('  • No hardcoded tokens in scripts or history');
+    console.log('  • Automatic token refresh when needed');
+    console.log('  • Works with SSO and 2FA enabled organizations');
+    console.log('  • Secure credential storage');
+
+    console.log('\n🔗 Example usage:');
+    console.log('  automerge-dependabot run navikt/appsec-internal-test --token "$(gh auth token)"');
+    return;
   }
-  
-  program.parse();
+
+  if (!command || command === '--help' || command === '-h') {
+    printHelp();
+    return;
+  }
+
+  const runArgs = command === 'run' ? args.slice(1) : args;
+
+  const { values, positionals } = parseArgs({
+    args: runArgs,
+    options: {
+      token:                  { type: 'string', short: 't' },
+      'minimum-age':          { type: 'string', default: '0' },
+      'blackout-periods':     { type: 'string' },
+      'ignored-dependencies': { type: 'string' },
+      'always-allow':         { type: 'string' },
+      'always-allow-labels':  { type: 'string' },
+      'ignored-versions':     { type: 'string' },
+      'semver-filter':        { type: 'string', default: 'patch,minor' },
+      'merge-method':         { type: 'string', default: 'merge' },
+      'retry-delay-ms':       { type: 'string', default: '2000' },
+      'no-dry-run':                   { type: 'boolean', default: false },
+      'auto-approve':                 { type: 'boolean', default: false },
+      'update-branch-before-merge':   { type: 'boolean', default: false },
+      'max-update-wait-seconds':      { type: 'string', default: '300' },
+      verbose:                        { type: 'boolean', short: 'v', default: false },
+    },
+    allowPositionals: true,
+  });
+
+  const url = positionals[0];
+
+  await runCli({
+    url,
+    token:                values['token'],
+    minimumAge:           parseInt(values['minimum-age'], 10),
+    blackoutPeriods:      values['blackout-periods'],
+    ignoredDependencies:  values['ignored-dependencies'],
+    alwaysAllow:          values['always-allow'],
+    alwaysAllowLabels:    values['always-allow-labels'],
+    ignoredVersions:      values['ignored-versions'],
+    semverFilter:         values['semver-filter'],
+    mergeMethod:          values['merge-method'],
+    retryDelayMs:                parseInt(values['retry-delay-ms'], 10) || 2000,
+    dryRun:                      !values['no-dry-run'],
+    autoApprove:                 values['auto-approve'],
+    updateBranchBeforeMerge:     values['update-branch-before-merge'],
+    maxUpdateWaitSeconds:        parseInt(values['max-update-wait-seconds'], 10) || 300,
+    verbose:                     values['verbose'],
+  });
 }
 
 // Only run if this is the main module
@@ -408,7 +478,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 
 export {
   runCli,
-  parseGitHubUrl,
+  parseRepository,
   createMockContext,
   createMockCore,
   main
