@@ -478,73 +478,76 @@ async function waitForChecksAfterUpdate(octokit, owner, repo, pullNumber, maxWai
   
   while (true) {
     attempt++;
-    const elapsedMs = Date.now() - startTime;
-    
-    // Check if we've exceeded the timeout
-    if (elapsedMs >= maxWaitMs) {
-      core.warning(`Timeout waiting for checks to pass on PR #${pullNumber} (waited ${Math.round(elapsedMs / 1000)}s)`);
-      return false;
-    }
     
     try {
       // Check PR mergeability
       const prDetails = await checkPRMergeability(octokit, owner, repo, pullNumber, retryDelayMs);
       
-      if (!prDetails) {
+      if (prDetails) {
+        // Get combined commit status (Status API)
+        const { data: combinedStatus } = await octokit.rest.repos.getCombinedStatusForRef({
+          owner,
+          repo,
+          ref: prDetails.head.sha
+        });
+
+        // Get check runs (Checks API – used by GitHub Actions and modern CI providers)
+        const { data: checkRunsData } = await octokit.rest.checks.listForRef({
+          owner,
+          repo,
+          ref: prDetails.head.sha
+        });
+        const checkRuns = checkRunsData.check_runs || [];
+
+        const statusFailed = combinedStatus.state === 'failure';
+        const anyCheckFailed = checkRuns.some(run =>
+          run.conclusion === 'failure' || run.conclusion === 'cancelled' || run.conclusion === 'timed_out'
+        );
+        const anyCheckPending = checkRuns.some(run =>
+          run.status === 'queued' || run.status === 'in_progress'
+        );
+        const statusSuccess = combinedStatus.state === 'success' || combinedStatus.total_count === 0;
+        const allChecksCompleted = !anyCheckPending && !anyCheckFailed;
+
+        // If status is failure, no point in waiting
+        if (statusFailed || anyCheckFailed) {
+          core.warning(`Checks failed for PR #${pullNumber} after branch update`);
+          return false;
+        }
+        
+        // Check if checks are passing
+        if (prDetails.mergeable && statusSuccess && allChecksCompleted) {
+          core.info(`Checks passed for PR #${pullNumber} after ${Math.round((Date.now() - startTime) / 1000)}s`);
+          return true;
+        }
+        
+        // If not mergeable due to conflicts, fail immediately
+        if (!prDetails.mergeable) {
+          core.warning(`PR #${pullNumber} is not mergeable after branch update (may have conflicts)`);
+          return false;
+        }
+        
+        core.debug(`PR #${pullNumber} checks still pending (attempt ${attempt}, elapsed: ${Math.round((Date.now() - startTime) / 1000)}s)`);
+      } else {
         core.debug(`PR #${pullNumber} mergeable state could not be determined (attempt ${attempt})`);
-        await new Promise(resolve => setTimeout(resolve, retryDelayMs));
-        continue;
       }
-      
-      // Get combined commit status (Status API)
-      const { data: combinedStatus } = await octokit.rest.repos.getCombinedStatusForRef({
-        owner,
-        repo,
-        ref: prDetails.head.sha
-      });
 
-      // Get check runs (Checks API – used by GitHub Actions and modern CI providers)
-      const { data: checkRunsData } = await octokit.rest.checks.listForRef({
-        owner,
-        repo,
-        ref: prDetails.head.sha
-      });
-      const checkRuns = checkRunsData.check_runs || [];
-
-      const statusFailed = combinedStatus.state === 'failure';
-      const anyCheckFailed = checkRuns.some(run =>
-        run.conclusion === 'failure' || run.conclusion === 'cancelled' || run.conclusion === 'timed_out'
-      );
-      const anyCheckPending = checkRuns.some(run =>
-        run.status === 'queued' || run.status === 'in_progress'
-      );
-      const statusSuccess = combinedStatus.state === 'success' || combinedStatus.total_count === 0;
-      const allChecksCompleted = !anyCheckPending && !anyCheckFailed;
-
-      // If status is failure, no point in waiting
-      if (statusFailed || anyCheckFailed) {
-        core.warning(`Checks failed for PR #${pullNumber} after branch update`);
+      // Timeout check after API calls – ensures we don't sleep past the deadline
+      const elapsedMs = Date.now() - startTime;
+      if (elapsedMs >= maxWaitMs) {
+        core.warning(`Timeout waiting for checks to pass on PR #${pullNumber} (waited ${Math.round(elapsedMs / 1000)}s)`);
         return false;
       }
       
-      // Check if checks are passing
-      if (prDetails.mergeable && statusSuccess && allChecksCompleted) {
-        core.info(`Checks passed for PR #${pullNumber} after ${Math.round(elapsedMs / 1000)}s`);
-        return true;
-      }
-      
-      // If not mergeable due to conflicts, fail immediately
-      if (!prDetails.mergeable) {
-        core.warning(`PR #${pullNumber} is not mergeable after branch update (may have conflicts)`);
-        return false;
-      }
-      
-      // Wait before next attempt
-      core.debug(`PR #${pullNumber} checks still pending (attempt ${attempt}, elapsed: ${Math.round(elapsedMs / 1000)}s)`);
       await new Promise(resolve => setTimeout(resolve, retryDelayMs));
       
     } catch (error) {
       core.warning(`Error checking PR #${pullNumber} status (attempt ${attempt}): ${error.message}`);
+      const elapsedMs = Date.now() - startTime;
+      if (elapsedMs >= maxWaitMs) {
+        core.warning(`Timeout waiting for checks to pass on PR #${pullNumber} (waited ${Math.round(elapsedMs / 1000)}s)`);
+        return false;
+      }
       await new Promise(resolve => setTimeout(resolve, retryDelayMs));
     }
   }
