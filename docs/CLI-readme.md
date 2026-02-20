@@ -21,25 +21,33 @@ automerge-dependabot <options>
 ### CLI Options
 
 ```bash
-automerge-dependabot [options] <url>
+automerge-dependabot <command> [options]
+
+Commands:
+  run <repository>      Analyze and optionally merge Dependabot pull requests (e.g., owner/repo)
+  auth-status           Check authentication status and show secure setup options
 
 Arguments:
-  url                            GitHub repository URL (e.g., https://github.com/owner/repo)
+  repository             Repository in owner/repo format (e.g., owner/repo)
+                         Also accepts full GitHub URLs (e.g., https://github.com/owner/repo)
 
-Options:
-  -t, --token <token>            GitHub token (or use GITHUB_TOKEN env var)
-  --minimum-age <days>           Minimum age of PR in days before merging (default: "0")
-  --blackout-periods <periods>   Blackout periods when action should not run
-  --ignored-dependencies <deps>  Comma-separated list of dependencies to ignore
-  --always-allow <patterns>      Comma-separated list of patterns to always allow
-  --always-allow-labels <labels> Comma-separated list of PR labels that bypass all filters
-  --ignored-versions <versions>  Comma-separated list of specific versions to ignore
-  --semver-filter <levels>       Semver levels to allow (major,minor,patch,unknown) (default: "patch,minor")
-  --merge-method <method>        Merge method (merge, squash, rebase) (default: "merge")
-  --retry-delay-ms <ms>          Delay between retries when checking PR mergeability (default: "10000")
-  --no-dry-run                   Actually merge PRs (default is dry run)
-  -v, --verbose                  Enable verbose logging
-  -h, --help                     Display help for command
+Options for 'run':
+  -t, --token <token>                GitHub token (or use GITHUB_TOKEN env var)
+  --minimum-age <days>               Minimum age of PR in days before merging (default: "0")
+  --blackout-periods <periods>       Blackout periods when action should not run
+  --ignored-dependencies <deps>      Comma-separated list of dependencies to ignore
+  --always-allow <patterns>          Comma-separated list of patterns to always allow
+  --always-allow-labels <labels>     Comma-separated list of PR labels that bypass all filters
+  --ignored-versions <versions>      Comma-separated list of specific versions to ignore
+  --semver-filter <levels>           Semver levels to allow (major,minor,patch,unknown) (default: "patch,minor")
+  --merge-method <method>            Merge method (merge, squash, rebase) (default: "merge")
+  --retry-delay-ms <ms>              Delay between retries when checking PR mergeability (default: "2000")
+  --auto-approve                     Automatically approve PRs before merging
+  --update-branch-before-merge       Update PR branches behind the base branch before merging
+  --max-update-wait-seconds <secs>   Max seconds to wait for checks after branch update (default: "300")
+  --no-dry-run                       Actually merge PRs (default is dry run)
+  -v, --verbose                      Enable verbose logging
+  -h, --help                         Display help for command
 ```
 
 ### Secure Authentication with GitHub CLI
@@ -65,11 +73,11 @@ gh auth login
 #### Use with CLI Tool
 ```bash
 # Use GitHub CLI to provide token securely
-automerge-dependabot https://github.com/owner/repo --token "$(gh auth print-token)"
+automerge-dependabot run owner/repo --token "$(gh auth token)"
 
 # Or set as environment variable
-export GITHUB_TOKEN=$(gh auth print-token)
-automerge-dependabot https://github.com/owner/repo
+export GITHUB_TOKEN=$(gh auth token)
+automerge-dependabot run owner/repo
 ```
 
 #### Benefits of GitHub CLI Authentication
@@ -89,14 +97,14 @@ automerge-dependabot auth-status
 **Dry run analysis** (default behavior, won't actually merge):
 ```bash
 # Using GitHub CLI (recommended for security)
-automerge-dependabot https://github.com/owner/repo --token "$(gh auth print-token)"
+automerge-dependabot run owner/repo --token "$(gh auth token)"
 
 # Using environment variable for token
 export GITHUB_TOKEN=your_token_here
-automerge-dependabot https://github.com/owner/repo
+automerge-dependabot run owner/repo
 
 # Or pass token directly (less secure)
-automerge-dependabot https://github.com/owner/repo --token your_token_here
+automerge-dependabot run owner/repo --token your_token_here
 ```
 
 **Check authentication status**:
@@ -106,12 +114,12 @@ automerge-dependabot auth-status
 
 **Actually merge PRs**:
 ```bash
-automerge-dependabot https://github.com/owner/repo --no-dry-run
+automerge-dependabot run owner/repo --no-dry-run
 ```
 
 **Advanced filtering**:
 ```bash
-automerge-dependabot https://github.com/owner/repo \
+automerge-dependabot run owner/repo \
   --minimum-age 3 \
   --ignored-dependencies "react,webpack" \
   --semver-filter "patch" \
@@ -121,7 +129,7 @@ automerge-dependabot https://github.com/owner/repo \
 
 **Test during blackout periods**:
 ```bash
-automerge-dependabot https://github.com/owner/repo \
+automerge-dependabot run owner/repo \
   --blackout-periods "Sat,Sun,Dec 24-Jan 5"
 ```
 

@@ -6,12 +6,20 @@ import { shouldRunAtCurrentTime } from './timeUtils.js';
 import { applyFilters, getAllFilterReasons } from './filters.js';
 
 /**
- * Parse owner/repo string
- * @param {string} repository - Repository in "owner/repo" format
+ * Parse owner/repo string or full GitHub URL
+ * @param {string} repository - Repository in "owner/repo" format or full GitHub URL
  * @returns {Object} Object containing owner and repo
  */
 function parseRepository(repository) {
-  const match = repository && repository.match(/^([^/]+)\/([^/]+)$/);
+  if (!repository) {
+    throw new Error('Invalid repository format. Expected: owner/repo (e.g., navikt/appsec-internal-test)');
+  }
+  // Accept full GitHub URLs like https://github.com/owner/repo
+  const urlMatch = repository.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?(?:\/.*)?$/);
+  if (urlMatch) {
+    return { owner: urlMatch[1], repo: urlMatch[2] };
+  }
+  const match = repository.match(/^([^/]+)\/([^/]+)$/);
   if (!match) {
     throw new Error('Invalid repository format. Expected: owner/repo (e.g., navikt/appsec-internal-test)');
   }
@@ -101,7 +109,7 @@ function formatPRList(pullRequests, title) {
  */
 async function runCli(options) {
   try {
-    // Parse GitHub URL
+    // Parse repository (owner/repo)
     const { owner, repo } = parseRepository(options.url);
     console.log(`🔍 Analyzing repository: ${owner}/${repo}`);
     
@@ -425,6 +433,13 @@ async function main() {
     return;
   }
 
+  if (command !== 'run' && command !== 'auth-status' && !command.startsWith('-')) {
+    console.error(`Error: Unknown command '${command}'. Valid commands are: run, auth-status\n`);
+    printHelp();
+    process.exitCode = 1;
+    return;
+  }
+
   const runArgs = command === 'run' ? args.slice(1) : args;
 
   const { values, positionals } = parseArgs({
@@ -451,24 +466,36 @@ async function main() {
 
   const url = positionals[0];
 
-  await runCli({
-    url,
-    token:                values['token'],
-    minimumAge:           parseInt(values['minimum-age'], 10),
-    blackoutPeriods:      values['blackout-periods'],
-    ignoredDependencies:  values['ignored-dependencies'],
-    alwaysAllow:          values['always-allow'],
-    alwaysAllowLabels:    values['always-allow-labels'],
-    ignoredVersions:      values['ignored-versions'],
-    semverFilter:         values['semver-filter'],
-    mergeMethod:          values['merge-method'],
-    retryDelayMs:                parseInt(values['retry-delay-ms'], 10) || 2000,
-    dryRun:                      !values['no-dry-run'],
-    autoApprove:                 values['auto-approve'],
-    updateBranchBeforeMerge:     values['update-branch-before-merge'],
-    maxUpdateWaitSeconds:        parseInt(values['max-update-wait-seconds'], 10) || 300,
-    verbose:                     values['verbose'],
-  });
+  if (!url) {
+    console.error('Error: Missing repository argument. Expected: owner/repo (e.g., navikt/appsec-internal-test) or a repository URL.\n');
+    printHelp();
+    process.exitCode = 1;
+    return;
+  }
+
+  try {
+    await runCli({
+      url,
+      token:                values['token'],
+      minimumAge:           parseInt(values['minimum-age'], 10),
+      blackoutPeriods:      values['blackout-periods'],
+      ignoredDependencies:  values['ignored-dependencies'],
+      alwaysAllow:          values['always-allow'],
+      alwaysAllowLabels:    values['always-allow-labels'],
+      ignoredVersions:      values['ignored-versions'],
+      semverFilter:         values['semver-filter'],
+      mergeMethod:          values['merge-method'],
+      retryDelayMs:                parseInt(values['retry-delay-ms'], 10) || 2000,
+      dryRun:                      !values['no-dry-run'],
+      autoApprove:                 values['auto-approve'],
+      updateBranchBeforeMerge:     values['update-branch-before-merge'],
+      maxUpdateWaitSeconds:        parseInt(values['max-update-wait-seconds'], 10) || 300,
+      verbose:                     values['verbose'],
+    });
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
 }
 
 // Only run if this is the main module
