@@ -17,6 +17,9 @@ function createMockOctokit() {
       repos: {
         getCombinedStatusForRef: jest.fn(),
         get: jest.fn()
+      },
+      checks: {
+        listForRef: jest.fn()
       }
     }
   };

@@ -45,7 +45,15 @@ inputs:
   auto-approve:
     description: Whether to automatically approve PRs before merging them
     required: false
-    default: 'false'  
+    default: 'false'
+  update-branch-before-merge:
+    description: Whether to update PR branches that are behind the base branch before merging
+    required: false
+    default: 'false'
+  max-update-wait-seconds:
+    description: Maximum time in seconds to wait for checks to pass after updating a PR branch
+    required: false
+    default: '300'
 
 outputs:
   merged-pr-count:
