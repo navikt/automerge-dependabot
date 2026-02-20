@@ -9,4 +9,4 @@ lerna-debug.log*
 .idea
 .github/**md
 coverage/**
-.vscode/
+.vscode/**

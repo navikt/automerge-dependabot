@@ -1,9 +1,9 @@
 import * as core from '@actions/core';
 import * as github from '@actions/github';
 import { fileURLToPath } from 'node:url';
-import { findMergeablePRs, approvePullRequest, checkPRMergeability } from './pullRequests.js';
+import { findMergeablePRs, approvePullRequest, checkPRMergeability, updatePRBranch, waitForChecksAfterUpdate } from './pullRequests.js';
 import { shouldRunAtCurrentTime } from './timeUtils.js';
-import { applyFilters } from './filters.js';
+import { applyFilters, recordFilterReason } from './filters.js';
 import { addWorkflowSummary } from './summary.js';
 
 async function run() {
@@ -34,8 +34,12 @@ async function run() {
     const ignoredVersions = core.getInput('ignored-versions');
     const semverFilter = core.getInput('semver-filter');
     const mergeMethod = core.getInput('merge-method');
-    const retryDelayMs = parseInt(core.getInput('retry-delay-ms'), 10) || 10000;
+    const parsedRetryDelay = parseInt(core.getInput('retry-delay-ms'), 10);
+    const retryDelayMs = Number.isNaN(parsedRetryDelay) ? 10000 : parsedRetryDelay;
     const autoApprove = core.getInput('auto-approve') === 'true';
+    const updateBranchBeforeMerge = core.getInput('update-branch-before-merge') === 'true';
+    const parsedMaxUpdateWait = parseInt(core.getInput('max-update-wait-seconds'), 10);
+    const maxUpdateWaitSeconds = Number.isNaN(parsedMaxUpdateWait) ? 300 : parsedMaxUpdateWait;
     
     // Prepare filter options - we'll use this regardless of whether we're in a blackout period
     const filterOptions = {
@@ -51,6 +55,7 @@ async function run() {
     let filteredPRs = [];
     let initialPRs = [];
     let mergedPRCount = 0;
+    const mergedPRNumbers = new Set();
 
     // Check if the action should run at the current time
     if (!shouldRunAtCurrentTime(blackoutPeriods)) {
@@ -110,6 +115,40 @@ async function run() {
           // Merge eligible PRs
           for (const pr of filteredPRs) {
 
+          // Check if branch needs updating and update-branch-before-merge is enabled
+          if (updateBranchBeforeMerge && pr.prDetails && pr.prDetails.mergeable_state === 'behind') {
+            core.info(`PR #${pr.number} branch is behind base branch. Updating...`);
+            
+            const updateSuccess = await updatePRBranch(
+              octokit,
+              context.repo.owner,
+              context.repo.repo,
+              pr.number
+            );
+            
+            if (!updateSuccess) {
+              core.warning(`Skipping merge of PR #${pr.number} due to branch update failure`);
+              recordFilterReason(pr.number, 'merge', 'Branch update failed');
+              continue;
+            }
+            
+            // Wait for checks to pass after update
+            const checksPass = await waitForChecksAfterUpdate(
+              octokit,
+              context.repo.owner,
+              context.repo.repo,
+              pr.number,
+              maxUpdateWaitSeconds,
+              retryDelayMs
+            );
+            
+            if (!checksPass) {
+              core.warning(`Skipping merge of PR #${pr.number} because checks did not pass after branch update`);
+              recordFilterReason(pr.number, 'merge', 'Checks did not pass after branch update');
+              continue;
+            }
+          }
+
           // Auto-approve if enabled
           if (autoApprove) {
             const approved = await approvePullRequest(
@@ -122,6 +161,7 @@ async function run() {
               core.warning(
                 `Skipping merge of PR #${pr.number} due to approval failure`
               );
+              recordFilterReason(pr.number, 'merge', 'Auto-approval failed');
               continue;
             }
           }
@@ -139,6 +179,7 @@ async function run() {
                 
                 core.info(`Successfully merged PR #${pr.number}`);
                 mergedPRCount++;
+                mergedPRNumbers.add(pr.number);
 
                 // Add a delay after successful merge to allow GitHub to process the changes
                 // This helps prevent race conditions with subsequent PRs
@@ -161,6 +202,7 @@ async function run() {
                   
                   if (!currentPRDetails || !currentPRDetails.mergeable) {
                     core.warning(`PR #${pr.number} is no longer mergeable after base branch modification. Skipping.`);
+                    recordFilterReason(pr.number, 'merge', 'No longer mergeable after base branch modification');
                     continue;
                   }
                   
@@ -175,6 +217,7 @@ async function run() {
                   
                   core.info(`Successfully merged PR #${pr.number} on retry`);
                   mergedPRCount++;
+                  mergedPRNumbers.add(pr.number);
 
                   // Add a delay after successful merge
                   if (retryDelayMs > 0) {
@@ -203,6 +246,7 @@ async function run() {
               }
             } catch (error) {
               core.warning(`Failed to merge PR #${pr.number}: ${error.message}`);
+              recordFilterReason(pr.number, 'merge', `Merge failed: ${error.message}`);
             }
           }
         }
@@ -210,7 +254,7 @@ async function run() {
     }
     
     // Always add workflow summary at the end with the final state
-    await addWorkflowSummary(pullRequests, filteredPRs, filterOptions, initialPRs);
+    await addWorkflowSummary(pullRequests, filteredPRs, mergedPRNumbers, filterOptions, initialPRs);
     
     // Set the output for the number of merged PRs
     core.setOutput('merged-pr-count', mergedPRCount);

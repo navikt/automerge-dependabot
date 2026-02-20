@@ -3,7 +3,7 @@ import * as core from '../__fixtures__/core.js';
 
 jest.unstable_mockModule('@actions/core', () => core);
 
-const { findMergeablePRs, extractMultipleDependencyInfo, checkPRMergeability, approvePullRequest } = await import('../src/pullRequests.js');
+const { findMergeablePRs, extractMultipleDependencyInfo, checkPRMergeability, approvePullRequest, updatePRBranch, waitForChecksAfterUpdate } = await import('../src/pullRequests.js');
 const { setupTestEnvironment, createMockPR } = await import('./helpers/mockSetup.js');
 
 describe('PullRequests Module', () => {
@@ -915,6 +915,208 @@ Updates dependency-B from 2.1.0 to 2.1.1
 
       expect(result).toBe(false);
       expect(core.warning).toHaveBeenCalledWith('Failed to approve PR #789: Network timeout');
+    });
+  });
+
+  describe('updatePRBranch', () => {
+
+    test('should successfully update a PR branch', async () => {
+      const mockOctokit = {
+        rest: {
+          pulls: {
+            updateBranch: jest.fn().mockResolvedValue({})
+          }
+        }
+      };
+
+      const result = await updatePRBranch(mockOctokit, 'owner', 'repo', 123);
+
+      expect(result).toBe(true);
+      expect(mockOctokit.rest.pulls.updateBranch).toHaveBeenCalledWith({
+        owner: 'owner',
+        repo: 'repo',
+        pull_number: 123
+      });
+      expect(core.info).toHaveBeenCalledWith('Updated branch for PR #123 to sync with base branch');
+    });
+
+    test('should handle update failure', async () => {
+      const mockOctokit = {
+        rest: {
+          pulls: {
+            updateBranch: jest.fn().mockRejectedValue(new Error('Branch has conflicts'))
+          }
+        }
+      };
+
+      const result = await updatePRBranch(mockOctokit, 'owner', 'repo', 456);
+
+      expect(result).toBe(false);
+      expect(mockOctokit.rest.pulls.updateBranch).toHaveBeenCalledWith({
+        owner: 'owner',
+        repo: 'repo',
+        pull_number: 456
+      });
+      expect(core.warning).toHaveBeenCalledWith('Failed to update branch for PR #456: Branch has conflicts');
+    });
+  });
+
+  describe('waitForChecksAfterUpdate', () => {
+
+    const noCheckRuns = { data: { check_runs: [] } };
+    const prMergeable = { data: { number: 1, mergeable: true, mergeable_state: 'clean', head: { sha: 'abc123' } } };
+
+    test('should return true when checks pass immediately', async () => {
+      const mockOctokit = {
+        rest: {
+          pulls: { get: jest.fn().mockResolvedValue(prMergeable) },
+          repos: { getCombinedStatusForRef: jest.fn().mockResolvedValue({ data: { state: 'success' } }) },
+          checks: { listForRef: jest.fn().mockResolvedValue(noCheckRuns) }
+        }
+      };
+
+      const result = await waitForChecksAfterUpdate(mockOctokit, 'owner', 'repo', 1, 60, 10);
+
+      expect(result).toBe(true);
+      expect(core.info).toHaveBeenCalledWith(expect.stringContaining('Checks passed for PR #1'));
+    });
+
+    test('should return false when status checks fail', async () => {
+      const mockOctokit = {
+        rest: {
+          pulls: { get: jest.fn().mockResolvedValue(prMergeable) },
+          repos: { getCombinedStatusForRef: jest.fn().mockResolvedValue({ data: { state: 'failure' } }) },
+          checks: { listForRef: jest.fn().mockResolvedValue(noCheckRuns) }
+        }
+      };
+
+      const result = await waitForChecksAfterUpdate(mockOctokit, 'owner', 'repo', 1, 60, 10);
+
+      expect(result).toBe(false);
+      expect(core.warning).toHaveBeenCalledWith('Checks failed for PR #1 after branch update');
+    });
+
+    test('should return false when a check run fails', async () => {
+      const mockOctokit = {
+        rest: {
+          pulls: { get: jest.fn().mockResolvedValue(prMergeable) },
+          repos: { getCombinedStatusForRef: jest.fn().mockResolvedValue({ data: { state: 'success', total_count: 0 } }) },
+          checks: {
+            listForRef: jest.fn().mockResolvedValue({
+              data: { check_runs: [{ status: 'completed', conclusion: 'failure' }] }
+            })
+          }
+        }
+      };
+
+      const result = await waitForChecksAfterUpdate(mockOctokit, 'owner', 'repo', 1, 60, 10);
+
+      expect(result).toBe(false);
+      expect(core.warning).toHaveBeenCalledWith('Checks failed for PR #1 after branch update');
+    });
+
+    test.each([
+      ['cancelled'],
+      ['timed_out'],
+      ['action_required'],
+      ['stale'],
+    ])('should return false when a check run has conclusion "%s"', async (conclusion) => {
+      const mockOctokit = {
+        rest: {
+          pulls: { get: jest.fn().mockResolvedValue(prMergeable) },
+          repos: { getCombinedStatusForRef: jest.fn().mockResolvedValue({ data: { state: 'success', total_count: 0 } }) },
+          checks: {
+            listForRef: jest.fn().mockResolvedValue({
+              data: { check_runs: [{ status: 'completed', conclusion }] }
+            })
+          }
+        }
+      };
+
+      const result = await waitForChecksAfterUpdate(mockOctokit, 'owner', 'repo', 1, 60, 10);
+
+      expect(result).toBe(false);
+      expect(core.warning).toHaveBeenCalledWith('Checks failed for PR #1 after branch update');
+    });
+
+    test('should return false when PR becomes unmergeable', async () => {
+      const mockOctokit = {
+        rest: {
+          pulls: {
+            get: jest.fn().mockResolvedValue({
+              data: { number: 1, mergeable: false, mergeable_state: 'dirty', head: { sha: 'abc123' } }
+            })
+          },
+          repos: { getCombinedStatusForRef: jest.fn().mockResolvedValue({ data: { state: 'pending' } }) },
+          checks: { listForRef: jest.fn().mockResolvedValue(noCheckRuns) }
+        }
+      };
+
+      const result = await waitForChecksAfterUpdate(mockOctokit, 'owner', 'repo', 1, 60, 10);
+
+      expect(result).toBe(false);
+      expect(core.warning).toHaveBeenCalledWith('PR #1 is not mergeable after branch update (may have conflicts)');
+    });
+
+    test('should timeout if checks take too long', async () => {
+      jest.useFakeTimers();
+
+      const mockOctokit = {
+        rest: {
+          pulls: { get: jest.fn().mockResolvedValue(prMergeable) },
+          repos: { getCombinedStatusForRef: jest.fn().mockResolvedValue({ data: { state: 'pending' } }) },
+          checks: { listForRef: jest.fn().mockResolvedValue(noCheckRuns) }
+        }
+      };
+
+      // maxWaitSeconds=1, retryDelayMs=100 – advance fake clock past the 1s timeout
+      const resultPromise = waitForChecksAfterUpdate(mockOctokit, 'owner', 'repo', 1, 1, 100);
+      await jest.advanceTimersByTimeAsync(2000);
+      const result = await resultPromise;
+
+      jest.useRealTimers();
+
+      expect(result).toBe(false);
+      expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('Timeout waiting for checks'));
+    });
+
+    test('should handle pending checks and eventually succeed', async () => {
+      const mockOctokit = {
+        rest: {
+          pulls: { get: jest.fn().mockResolvedValue(prMergeable) },
+          repos: {
+            getCombinedStatusForRef: jest.fn()
+              .mockResolvedValueOnce({ data: { state: 'pending' } })
+              .mockResolvedValueOnce({ data: { state: 'pending' } })
+              .mockResolvedValueOnce({ data: { state: 'success' } })
+          },
+          checks: { listForRef: jest.fn().mockResolvedValue(noCheckRuns) }
+        }
+      };
+
+      const result = await waitForChecksAfterUpdate(mockOctokit, 'owner', 'repo', 1, 60, 10);
+
+      expect(result).toBe(true);
+      expect(mockOctokit.rest.repos.getCombinedStatusForRef).toHaveBeenCalledTimes(3);
+    });
+
+    test('should wait for in-progress check runs to complete before succeeding', async () => {
+      const mockOctokit = {
+        rest: {
+          pulls: { get: jest.fn().mockResolvedValue(prMergeable) },
+          repos: { getCombinedStatusForRef: jest.fn().mockResolvedValue({ data: { state: 'success', total_count: 0 } }) },
+          checks: {
+            listForRef: jest.fn()
+              .mockResolvedValueOnce({ data: { check_runs: [{ status: 'in_progress', conclusion: null }] } })
+              .mockResolvedValueOnce({ data: { check_runs: [{ status: 'completed', conclusion: 'success' }] } })
+          }
+        }
+      };
+
+      const result = await waitForChecksAfterUpdate(mockOctokit, 'owner', 'repo', 1, 60, 10);
+
+      expect(result).toBe(true);
+      expect(mockOctokit.rest.checks.listForRef).toHaveBeenCalledTimes(2);
     });
   });
 });

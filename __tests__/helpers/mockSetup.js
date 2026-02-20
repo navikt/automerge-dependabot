@@ -11,11 +11,15 @@ function createMockOctokit() {
         list: jest.fn(),
         get: jest.fn(),
         listCommits: jest.fn(),
-        listReviews: jest.fn()
+        listReviews: jest.fn(),
+        updateBranch: jest.fn()
       },
       repos: {
         getCombinedStatusForRef: jest.fn(),
         get: jest.fn()
+      },
+      checks: {
+        listForRef: jest.fn()
       }
     }
   };

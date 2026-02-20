@@ -36769,6 +36769,129 @@ async function approvePullRequest(octokit, owner, repo, pullNumber) {
 }
 
 /**
+ * Update a pull request branch to sync with the base branch
+ *
+ * @param {Object} octokit - GitHub API client
+ * @param {string} owner - Repository owner
+ * @param {string} repo - Repository name
+ * @param {number} pullNumber - Pull request number
+ * @returns {boolean} True if update succeeded, false otherwise
+ */
+async function updatePRBranch(octokit, owner, repo, pullNumber) {
+  try {
+    await octokit.rest.pulls.updateBranch({
+      owner,
+      repo,
+      pull_number: pullNumber
+    });
+    info(`Updated branch for PR #${pullNumber} to sync with base branch`);
+    return true;
+  } catch (error) {
+    warning(`Failed to update branch for PR #${pullNumber}: ${error.message}`);
+    return false;
+  }
+}
+
+/**
+ * Wait for checks to pass after updating a PR branch
+ *
+ * @param {Object} octokit - GitHub API client
+ * @param {string} owner - Repository owner
+ * @param {string} repo - Repository name
+ * @param {number} pullNumber - Pull request number
+ * @param {number} maxWaitSeconds - Maximum time to wait in seconds
+ * @param {number} retryDelayMs - Delay in milliseconds between retries
+ * @returns {boolean} True if checks pass, false if timeout or failure
+ */
+async function waitForChecksAfterUpdate(octokit, owner, repo, pullNumber, maxWaitSeconds, retryDelayMs = 2000) {
+  const startTime = Date.now();
+  const maxWaitMs = maxWaitSeconds * 1000;
+  let attempt = 0;
+  
+  info(`Waiting up to ${maxWaitSeconds} seconds for checks to pass on PR #${pullNumber} after branch update...`);
+  
+  while (true) {
+    attempt++;
+    
+    try {
+      // Check PR mergeability
+      const prDetails = await checkPRMergeability(octokit, owner, repo, pullNumber, retryDelayMs);
+      
+      if (prDetails) {
+        // Get combined commit status (Status API)
+        const { data: combinedStatus } = await octokit.rest.repos.getCombinedStatusForRef({
+          owner,
+          repo,
+          ref: prDetails.head.sha
+        });
+
+        // Get check runs (Checks API – used by GitHub Actions and modern CI providers)
+        const { data: checkRunsData } = await octokit.rest.checks.listForRef({
+          owner,
+          repo,
+          ref: prDetails.head.sha
+        });
+        const checkRuns = checkRunsData.check_runs || [];
+
+        const statusFailed = combinedStatus.state === 'failure';
+        const anyCheckFailed = checkRuns.some(run =>
+          run.conclusion === 'failure' ||
+          run.conclusion === 'cancelled' ||
+          run.conclusion === 'timed_out' ||
+          run.conclusion === 'action_required' ||
+          run.conclusion === 'stale'
+        );
+        const anyCheckPending = checkRuns.some(run =>
+          run.status === 'queued' || run.status === 'in_progress'
+        );
+        const statusSuccess = combinedStatus.state === 'success' || combinedStatus.total_count === 0;
+        const allChecksCompleted = !anyCheckPending && !anyCheckFailed;
+
+        // If status is failure, no point in waiting
+        if (statusFailed || anyCheckFailed) {
+          warning(`Checks failed for PR #${pullNumber} after branch update`);
+          return false;
+        }
+        
+        // Check if checks are passing
+        if (prDetails.mergeable && statusSuccess && allChecksCompleted) {
+          info(`Checks passed for PR #${pullNumber} after ${Math.round((Date.now() - startTime) / 1000)}s`);
+          return true;
+        }
+        
+        // If not mergeable due to conflicts, fail immediately
+        if (!prDetails.mergeable) {
+          warning(`PR #${pullNumber} is not mergeable after branch update (may have conflicts)`);
+          return false;
+        }
+        
+        debug(`PR #${pullNumber} checks still pending (attempt ${attempt}, elapsed: ${Math.round((Date.now() - startTime) / 1000)}s)`);
+      } else {
+        debug(`PR #${pullNumber} mergeable state could not be determined (attempt ${attempt})`);
+      }
+
+      // Timeout check after API calls – ensures we don't sleep past the deadline
+      const elapsedMs = Date.now() - startTime;
+      if (elapsedMs >= maxWaitMs) {
+        warning(`Timeout waiting for checks to pass on PR #${pullNumber} (waited ${Math.round(elapsedMs / 1000)}s)`);
+        return false;
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+      
+    } catch (error) {
+      warning(`Error checking PR #${pullNumber} status (attempt ${attempt}): ${error.message}`);
+      const elapsedMs = Date.now() - startTime;
+      if (elapsedMs >= maxWaitMs) {
+        warning(`Timeout waiting for checks to pass on PR #${pullNumber} (waited ${Math.round(elapsedMs / 1000)}s)`);
+        return false;
+      }
+      await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+    }
+  }
+}
+
+/**
  * Creates a summary section title
  * 
  * @param {string} title - The title for the section
@@ -36795,12 +36918,13 @@ function createTableHeader(columns) {
  * Adds PR information to the workflow summary
  * 
  * @param {Array} allPRs - Array of all PRs retrieved from GitHub before filtering
- * @param {Array} prsToMerge - Array of PRs after filtering that will be merged
+ * @param {Array} prsToMerge - Array of PRs after filtering that were attempted for merge
+ * @param {Set<number>} mergedPRNumbers - Set of PR numbers that were successfully merged
  * @param {Object} filters - Filtering rules that were applied
  * @param {Array} initialPRs - Array of all initial PRs found (including those filtered in basic criteria)
  * @returns {Promise<void>}
  */
-async function addWorkflowSummary(allPRs, prsToMerge, filters, initialPRs = []) {
+async function addWorkflowSummary(allPRs, prsToMerge, mergedPRNumbers, filters, initialPRs = []) {
   try {
     // Start with a header (or two)
     summary.addHeading('Dependabot Automerge Summary', 1);
@@ -36839,70 +36963,91 @@ async function addWorkflowSummary(allPRs, prsToMerge, filters, initialPRs = []) 
       if (initialPRs.length > allPRs.length) {
         summaryMessage += ` (out of ${initialPRs.length} total open PRs)`;
       }
-      summaryMessage += `, ${prsToMerge.length} will be merged.`;
+      const mergedCount = mergedPRNumbers ? mergedPRNumbers.size : prsToMerge.length;
+      summaryMessage += `, ${mergedCount} merged.`;
       summary.addRaw(summaryMessage + '\n\n');
     }
     
     /*
-    * PRs to be Merged
+    * PRs to be Merged — split into merged vs skipped during merge
     */
     if (prsToMerge.length > 0) {
-      summary.addRaw(createSectionTitle('Pull Requests to Merge') + '\n\n');
-      
-      // Check if we need to include label information
       const hasLabelFiltering = filters.alwaysAllowLabels && filters.alwaysAllowLabels.length > 0;
-      
-      // Add the table header first
-      if (hasLabelFiltering) {
-        summary.addRaw(createTableHeader(['PR', 'Dependency', 'Version', 'Reason']) + '\n');
-      } else {
-        summary.addRaw(createTableHeader(['PR', 'Dependency', 'Version']) + '\n');
-      }
-      
-      // Add each PR as a separate row
-      for (const pr of prsToMerge) {
-        // Check if this PR has an allowed label
-        const allowedByLabel = hasLabelFiltering && shouldAlwaysAllowByLabel(pr.labels, filters.alwaysAllowLabels);
-        
-        // Determine the reason text
-        let reason = '';
-        if (allowedByLabel && pr.labels) {
-          const matchingLabels = pr.labels
-            .filter(label => filters.alwaysAllowLabels.some(allowed => allowed.toLowerCase() === label.name.toLowerCase()))
-            .map(label => label.name);
-          reason = `Allowed by label: ${matchingLabels.join(', ')}`;
-        } else if (hasLabelFiltering) {
-          reason = 'Passed filters';
+
+      const mergedPRs = prsToMerge.filter(pr => mergedPRNumbers && mergedPRNumbers.has(pr.number));
+      const skippedDuringMerge = prsToMerge.filter(pr => !mergedPRNumbers || !mergedPRNumbers.has(pr.number));
+
+      const renderPRTable = (prs, title) => {
+        if (prs.length === 0) return;
+        summary.addRaw(createSectionTitle(title) + '\n\n');
+
+        if (hasLabelFiltering) {
+          summary.addRaw(createTableHeader(['PR', 'Dependency', 'Version', 'Reason']) + '\n');
+        } else {
+          summary.addRaw(createTableHeader(['PR', 'Dependency', 'Version']) + '\n');
         }
-        
-        // For PRs that will be merged, we need to extract dependency info directly
-        if (pr.dependencyInfoList && pr.dependencyInfoList.length > 0) {
-          // Handle multiple dependencies
-          for (const depInfo of pr.dependencyInfoList) {
-            if (depInfo.name) {
-              const tableRow = hasLabelFiltering 
+
+        for (const pr of prs) {
+          const allowedByLabel = hasLabelFiltering && shouldAlwaysAllowByLabel(pr.labels, filters.alwaysAllowLabels);
+          let reason = '';
+          if (allowedByLabel && pr.labels) {
+            const matchingLabels = pr.labels
+              .filter(label => filters.alwaysAllowLabels.some(allowed => allowed.toLowerCase() === label.name.toLowerCase()))
+              .map(label => label.name);
+            reason = `Allowed by label: ${matchingLabels.join(', ')}`;
+          } else if (hasLabelFiltering) {
+            reason = 'Passed filters';
+          }
+
+          const deps = pr.dependencyInfoList && pr.dependencyInfoList.length > 0
+            ? pr.dependencyInfoList.filter(d => d.name)
+            : pr.dependencyInfo && pr.dependencyInfo.name ? [pr.dependencyInfo] : null;
+
+          if (deps) {
+            for (const depInfo of deps) {
+              const tableRow = hasLabelFiltering
                 ? `| [#${pr.number}](${pr.html_url}) | ${depInfo.name} | ${depInfo.toVersion} | ${reason} |`
                 : `| [#${pr.number}](${pr.html_url}) | ${depInfo.name} | ${depInfo.toVersion} |`;
               summary.addRaw(tableRow + '\n');
             }
+          } else {
+            const tableRow = hasLabelFiltering
+              ? `| [#${pr.number}](${pr.html_url}) | Unknown | Unknown | ${reason} |`
+              : `| [#${pr.number}](${pr.html_url}) | Unknown | Unknown |`;
+            summary.addRaw(tableRow + '\n');
           }
-        } else if (pr.dependencyInfo && pr.dependencyInfo.name) {
-          // Handle single dependency
-          const depInfo = pr.dependencyInfo;
-          const tableRow = hasLabelFiltering
-            ? `| [#${pr.number}](${pr.html_url}) | ${depInfo.name} | ${depInfo.toVersion} | ${reason} |`
-            : `| [#${pr.number}](${pr.html_url}) | ${depInfo.name} | ${depInfo.toVersion} |`;
-          summary.addRaw(tableRow + '\n');
-        } else {
-          // Fallback if no dependency info is available
-          const tableRow = hasLabelFiltering
-            ? `| [#${pr.number}](${pr.html_url}) | Unknown | Unknown | ${reason} |`
-            : `| [#${pr.number}](${pr.html_url}) | Unknown | Unknown |`;
-          summary.addRaw(tableRow + '\n');
         }
+
+        summary.addRaw('\n');
+      };
+
+      renderPRTable(mergedPRs, 'Merged Pull Requests');
+
+      if (skippedDuringMerge.length > 0) {
+        summary.addRaw(createSectionTitle('Pull Requests Skipped During Merge') + '\n\n');
+        summary.addRaw(createTableHeader(['PR', 'Dependency', 'Version', 'Reason']) + '\n');
+
+        for (const pr of skippedDuringMerge) {
+          const mergeReasons = getFilterReasons(pr.number);
+          const mergeReason = mergeReasons
+            ? mergeReasons.filter(r => r.dependency === 'merge').map(r => r.reason).join('; ')
+            : 'Unknown reason';
+
+          const deps = pr.dependencyInfoList && pr.dependencyInfoList.length > 0
+            ? pr.dependencyInfoList.filter(d => d.name)
+            : pr.dependencyInfo && pr.dependencyInfo.name ? [pr.dependencyInfo] : null;
+
+          if (deps) {
+            for (const depInfo of deps) {
+              summary.addRaw(`| [#${pr.number}](${pr.html_url}) | ${depInfo.name} | ${depInfo.toVersion} | ${mergeReason} |\n`);
+            }
+          } else {
+            summary.addRaw(`| [#${pr.number}](${pr.html_url}) | Unknown | Unknown | ${mergeReason} |\n`);
+          }
+        }
+
+        summary.addRaw('\n');
       }
-      
-      summary.addRaw('\n');
     }
     
     /*
@@ -37025,8 +37170,12 @@ async function run() {
     const ignoredVersions = getInput('ignored-versions');
     const semverFilter = getInput('semver-filter');
     const mergeMethod = getInput('merge-method');
-    const retryDelayMs = parseInt(getInput('retry-delay-ms'), 10) || 10000;
+    const parsedRetryDelay = parseInt(getInput('retry-delay-ms'), 10);
+    const retryDelayMs = Number.isNaN(parsedRetryDelay) ? 10000 : parsedRetryDelay;
     const autoApprove = getInput('auto-approve') === 'true';
+    const updateBranchBeforeMerge = getInput('update-branch-before-merge') === 'true';
+    const parsedMaxUpdateWait = parseInt(getInput('max-update-wait-seconds'), 10);
+    const maxUpdateWaitSeconds = Number.isNaN(parsedMaxUpdateWait) ? 300 : parsedMaxUpdateWait;
     
     // Prepare filter options - we'll use this regardless of whether we're in a blackout period
     const filterOptions = {
@@ -37042,6 +37191,7 @@ async function run() {
     let filteredPRs = [];
     let initialPRs = [];
     let mergedPRCount = 0;
+    const mergedPRNumbers = new Set();
 
     // Check if the action should run at the current time
     if (!shouldRunAtCurrentTime(blackoutPeriods)) {
@@ -37101,6 +37251,40 @@ async function run() {
           // Merge eligible PRs
           for (const pr of filteredPRs) {
 
+          // Check if branch needs updating and update-branch-before-merge is enabled
+          if (updateBranchBeforeMerge && pr.prDetails && pr.prDetails.mergeable_state === 'behind') {
+            info(`PR #${pr.number} branch is behind base branch. Updating...`);
+            
+            const updateSuccess = await updatePRBranch(
+              octokit,
+              context$1.repo.owner,
+              context$1.repo.repo,
+              pr.number
+            );
+            
+            if (!updateSuccess) {
+              warning(`Skipping merge of PR #${pr.number} due to branch update failure`);
+              recordFilterReason(pr.number, 'merge', 'Branch update failed');
+              continue;
+            }
+            
+            // Wait for checks to pass after update
+            const checksPass = await waitForChecksAfterUpdate(
+              octokit,
+              context$1.repo.owner,
+              context$1.repo.repo,
+              pr.number,
+              maxUpdateWaitSeconds,
+              retryDelayMs
+            );
+            
+            if (!checksPass) {
+              warning(`Skipping merge of PR #${pr.number} because checks did not pass after branch update`);
+              recordFilterReason(pr.number, 'merge', 'Checks did not pass after branch update');
+              continue;
+            }
+          }
+
           // Auto-approve if enabled
           if (autoApprove) {
             const approved = await approvePullRequest(
@@ -37113,6 +37297,7 @@ async function run() {
               warning(
                 `Skipping merge of PR #${pr.number} due to approval failure`
               );
+              recordFilterReason(pr.number, 'merge', 'Auto-approval failed');
               continue;
             }
           }
@@ -37130,6 +37315,7 @@ async function run() {
                 
                 info(`Successfully merged PR #${pr.number}`);
                 mergedPRCount++;
+                mergedPRNumbers.add(pr.number);
 
                 // Add a delay after successful merge to allow GitHub to process the changes
                 // This helps prevent race conditions with subsequent PRs
@@ -37152,6 +37338,7 @@ async function run() {
                   
                   if (!currentPRDetails || !currentPRDetails.mergeable) {
                     warning(`PR #${pr.number} is no longer mergeable after base branch modification. Skipping.`);
+                    recordFilterReason(pr.number, 'merge', 'No longer mergeable after base branch modification');
                     continue;
                   }
                   
@@ -37166,6 +37353,7 @@ async function run() {
                   
                   info(`Successfully merged PR #${pr.number} on retry`);
                   mergedPRCount++;
+                  mergedPRNumbers.add(pr.number);
 
                   // Add a delay after successful merge
                   if (retryDelayMs > 0) {
@@ -37194,6 +37382,7 @@ async function run() {
               }
             } catch (error) {
               warning(`Failed to merge PR #${pr.number}: ${error.message}`);
+              recordFilterReason(pr.number, 'merge', `Merge failed: ${error.message}`);
             }
           }
         }
@@ -37201,7 +37390,7 @@ async function run() {
     }
     
     // Always add workflow summary at the end with the final state
-    await addWorkflowSummary(pullRequests, filteredPRs, filterOptions, initialPRs);
+    await addWorkflowSummary(pullRequests, filteredPRs, mergedPRNumbers, filterOptions, initialPRs);
     
     // Set the output for the number of merged PRs
     setOutput('merged-pr-count', mergedPRCount);

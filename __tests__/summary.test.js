@@ -95,7 +95,7 @@ describe('addWorkflowSummary', () => {
       semverFilter: ['patch', 'minor']
     };
 
-    await addWorkflowSummary(allPRs, prsToMerge, filters, allPRs);
+    await addWorkflowSummary(allPRs, prsToMerge, new Set([1, 3]), filters, allPRs);
 
     // Check that summary.addRaw was called with the correct PR overview information
     // We're checking that all PRs are included
@@ -135,23 +135,18 @@ describe('addWorkflowSummary', () => {
       content.includes('4.17.2'));
     expect(pr3ExpressCall).toBeTruthy();
     
-    // PR #2 should NOT be in the merge section - find if there's any row that has PR #2
-    // and is listed under the Pull Requests to Merge section
+    // PR #2 should NOT be in the merged section
     const mergeTableLabel = mergeCallContents.find(content => 
-      content.includes('Pull Requests to Merge'));
+      content.includes('Merged Pull Requests'));
     
-    // Only check this if we found the merge section label
     if (mergeTableLabel) {
-      // Find the index of the merge section label
       const mergeSectionIndex = mergeCallContents.indexOf(mergeTableLabel);
       
-      // Check in rows after the merge section header but before the filtered section
       const filteredSectionLabel = mergeCallContents.find(content => 
         content.includes('Filtered Out Dependencies'));
       const filteredSectionIndex = filteredSectionLabel ? 
         mergeCallContents.indexOf(filteredSectionLabel) : mergeCallContents.length;
       
-      // Look for PR #2 between merge section and filtered section
       let pr2InMergeSection = false;
       for (let i = mergeSectionIndex; i < filteredSectionIndex; i++) {
         if (mergeCallContents[i].includes('[#2]') && mergeCallContents[i].includes('react')) {
@@ -218,7 +213,7 @@ describe('addWorkflowSummary', () => {
       semverFilter: ['patch', 'minor']
     };
 
-    await addWorkflowSummary(allPRs, prsToMerge, filters, allPRs);
+    await addWorkflowSummary(allPRs, prsToMerge, new Set(), filters, allPRs);
 
     // Check that summary.addRaw was called
     expect(mockSummary.addRaw).toHaveBeenCalled();
@@ -264,7 +259,7 @@ describe('addWorkflowSummary', () => {
       semverFilter: ['patch', 'minor']
     };
 
-    await addWorkflowSummary(allPRs, prsToMerge, filters, initialPRs);
+    await addWorkflowSummary(allPRs, prsToMerge, new Set(), filters, initialPRs);
 
     // Check that summary was called with content
     expect(mockSummary.addRaw).toHaveBeenCalled();
@@ -333,7 +328,7 @@ describe('addWorkflowSummary', () => {
       semverFilter: ['patch', 'minor']
     };
 
-    await addWorkflowSummary(allPRs, prsToMerge, filters, initialPRs);
+    await addWorkflowSummary(allPRs, prsToMerge, new Set([10]), filters, initialPRs);
 
     // Check that summary was called with content
     expect(mockSummary.addRaw).toHaveBeenCalled();
@@ -405,7 +400,7 @@ describe('addWorkflowSummary', () => {
       semverFilter: ['patch']
     };
 
-    await addWorkflowSummary(allPRs, prsToMerge, filters, allPRs);
+    await addWorkflowSummary(allPRs, prsToMerge, new Set([1, 2]), filters, allPRs);
 
     // Get all the calls to addRaw and combine them
     const summaryContent = mockSummary.addRaw.mock.calls
@@ -457,7 +452,7 @@ describe('addWorkflowSummary', () => {
       semverFilter: ['patch']
     };
 
-    await addWorkflowSummary(allPRs, prsToMerge, filters, allPRs);
+    await addWorkflowSummary(allPRs, prsToMerge, new Set([1]), filters, allPRs);
 
     // Get all the calls to addRaw and combine them
     const summaryContent = mockSummary.addRaw.mock.calls
