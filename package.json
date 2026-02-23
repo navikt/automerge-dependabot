@@ -4,7 +4,8 @@
   "description": "GitHub Action to automatically merge Dependabot pull requests",
   "type": "module",
   "engines": {
-    "node": ">=24"
+    "node": ">=24",
+    "pnpm": ">=10"
   },
   "exports": {
     ".": "./dist/index.js"
@@ -13,7 +14,7 @@
     "automerge-dependabot": "bin/automerge-dependabot"
   },
   "scripts": {
-    "build": "npx rimraf ./dist && npx rollup --config rollup.config.js",
+    "build": "pnpm exec rimraf ./dist && pnpm exec rollup --config rollup.config.js",
     "test": "NODE_OPTIONS=--experimental-vm-modules NODE_NO_WARNINGS=1 jest --coverage",
     "lint": "eslint src/**/*.js",
     "prepare": "husky",

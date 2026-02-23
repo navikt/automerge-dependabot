@@ -1,3 +1,3 @@
-npm run lint
-npm run test
-echo "Remember to run 'npm run build' before committing if you have made changes to the source code, and want to rebuild the distribution files."
+pnpm run lint
+pnpm run test
+echo "Remember to run 'pnpm run build' before committing if you have made changes to the source code, and want to rebuild the distribution files."
