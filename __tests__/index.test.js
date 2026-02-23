@@ -825,7 +825,6 @@ describe('run', () => {
           return { data: { mergeable: true, mergeable_state: 'clean', head: { sha: 'abc123' } } };
         }
         // PR #2: first call (during scan) returns mergeable, subsequent call (pre-merge re-check) returns false
-        const callsForPr2 = getCallCount - 1; // approximate; we use a flag approach
         const isRescan = getCallCount > 2;
         return {
           data: {
