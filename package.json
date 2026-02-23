@@ -4,7 +4,8 @@
   "description": "GitHub Action to automatically merge Dependabot pull requests",
   "type": "module",
   "engines": {
-    "node": ">=24"
+    "node": ">=24",
+    "pnpm": ">=10"
   },
   "exports": {
     ".": "./dist/index.js"

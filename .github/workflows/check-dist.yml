@@ -32,12 +32,18 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Setup pnpm
+        id: setup-pnpm
+        uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # ratchet:pnpm/action-setup@v4
+        with:
+          version: latest
+
       - name: Setup Node.js
         id: setup-node
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # ratchet:actions/setup-node@v6
         with:
           node-version: 24
-          cache: npm
+          cache: pnpm
 
       - name: Remove dist/ Directory
         id: remove-dist
@@ -45,11 +51,11 @@ jobs:
 
       - name: Install Dependencies
         id: install
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Build dist/ Directory
         id: build
-        run: npm run build
+        run: pnpm run build
 
       # This will fail the workflow if the `dist/` directory is different than
       # expected.
