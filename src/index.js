@@ -115,8 +115,31 @@ async function run() {
           // Merge eligible PRs
           for (const pr of filteredPRs) {
 
+          // Re-check mergeability fresh before each merge attempt.
+          // Mergeability was checked upfront during scan, but a previous merge in this run
+          // may have rebased this PR, changing its mergeable state.
+          const freshPRDetails = await checkPRMergeability(
+            octokit,
+            context.repo.owner,
+            context.repo.repo,
+            pr.number,
+            retryDelayMs
+          );
+
+          if (!freshPRDetails) {
+            core.warning(`Skipping PR #${pr.number}: could not determine mergeable state`);
+            recordFilterReason(pr.number, 'merge', 'Could not determine mergeable state before merge');
+            continue;
+          }
+
+          if (!freshPRDetails.mergeable) {
+            core.warning(`Skipping PR #${pr.number}: no longer mergeable`);
+            recordFilterReason(pr.number, 'merge', 'No longer mergeable');
+            continue;
+          }
+
           // Check if branch needs updating and update-branch-before-merge is enabled
-          if (updateBranchBeforeMerge && pr.prDetails && pr.prDetails.mergeable_state === 'behind') {
+          if (updateBranchBeforeMerge && freshPRDetails.mergeable_state === 'behind') {
             core.info(`PR #${pr.number} branch is behind base branch. Updating...`);
             
             const updateSuccess = await updatePRBranch(

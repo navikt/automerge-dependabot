@@ -43,7 +43,7 @@ describe('Merging multiple PRs when base branch changes', () => {
     mockOctokit = result.mockOctokit;
   });
 
-  test('second PR is skipped when it is no longer mergeable after first PR is merged', async () => {
+  test('second PR is skipped when it is no longer mergeable before merge attempt', async () => {
     mockOctokit.rest.pulls.list.mockResolvedValue({
       data: [
         createMockPR({ number: 1, title: 'Bump lodash from 4.17.20 to 4.17.21', created_at: fourDaysAgo, head: { sha: 'sha1' } }),
@@ -51,15 +51,49 @@ describe('Merging multiple PRs when base branch changes', () => {
       ]
     });
 
-    // Initial mergeability checks: PR1 → mergeable, PR2 → mergeable.
-    // Re-check after PR2 merge failure: PR2 → not mergeable (base branch changed).
+    // Initial scan: both PRs mergeable.
+    // Pre-merge re-check PR1: still clean → PR1 merges.
+    // Pre-merge re-check PR2: dirty (became non-mergeable after PR1 was merged) → PR2 skipped.
     setupPullsGet(mockOctokit, [1, 2], [
+      { number: 1, mergeable: true,  mergeable_state: 'clean', head: { sha: 'sha1' } },
       { number: 2, mergeable: false, mergeable_state: 'dirty', head: { sha: 'sha2' } }
+    ]);
+
+    mockOctokit.rest.pulls.merge.mockResolvedValueOnce({}); // PR1 succeeds
+
+    await run();
+
+    expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledTimes(1);
+    expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledWith(expect.objectContaining({ pull_number: 1 }));
+
+    expect(core.info).toHaveBeenCalledWith(expect.stringContaining('Successfully merged PR #1'));
+    expect(core.info).not.toHaveBeenCalledWith(expect.stringContaining('Successfully merged PR #2'));
+
+    expect(core.warning).toHaveBeenCalledWith(
+      expect.stringContaining('Skipping PR #2: no longer mergeable')
+    );
+  });
+
+  test('second PR is merged after pre-merge re-check resolves null mergeability', async () => {
+    mockOctokit.rest.pulls.list.mockResolvedValue({
+      data: [
+        createMockPR({ number: 1, title: 'Bump lodash from 4.17.20 to 4.17.21', created_at: fourDaysAgo, head: { sha: 'sha1' } }),
+        createMockPR({ number: 2, title: 'Bump axios from 0.21.1 to 0.21.4',   created_at: fourDaysAgo, head: { sha: 'sha2' } })
+      ]
+    });
+
+    // Initial scan: both PRs mergeable.
+    // Pre-merge re-check PR1: clean → PR1 merges.
+    // Pre-merge re-check PR2: null first (GitHub computing after PR1 rebase), then resolves to true.
+    setupPullsGet(mockOctokit, [1, 2], [
+      { number: 1, mergeable: true, mergeable_state: 'clean',   head: { sha: 'sha1' } },
+      { number: 2, mergeable: null, mergeable_state: 'unknown', head: { sha: 'sha2' } },
+      { number: 2, mergeable: true, mergeable_state: 'clean',   head: { sha: 'sha2' } }
     ]);
 
     mockOctokit.rest.pulls.merge
       .mockResolvedValueOnce({}) // PR1 succeeds
-      .mockRejectedValueOnce(new Error('Base branch was modified. Review and try the merge again.')); // PR2 fails
+      .mockResolvedValueOnce({}); // PR2 succeeds
 
     await run();
 
@@ -68,55 +102,9 @@ describe('Merging multiple PRs when base branch changes', () => {
     expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledWith(expect.objectContaining({ pull_number: 2 }));
 
     expect(core.info).toHaveBeenCalledWith(expect.stringContaining('Successfully merged PR #1'));
-    expect(core.info).not.toHaveBeenCalledWith(expect.stringContaining('Successfully merged PR #2'));
+    expect(core.info).toHaveBeenCalledWith(expect.stringContaining('Successfully merged PR #2'));
 
-    expect(core.warning).toHaveBeenCalledWith(
-      expect.stringContaining('PR #2 failed due to base branch modification. Re-verifying mergeability and retrying...')
-    );
-    expect(core.warning).toHaveBeenCalledWith(
-      expect.stringContaining('PR #2 is no longer mergeable after base branch modification. Skipping.')
-    );
-  });
-
-  test('second PR is merged on retry when mergeability resolves to true after initial null state', async () => {
-    mockOctokit.rest.pulls.list.mockResolvedValue({
-      data: [
-        createMockPR({ number: 1, title: 'Bump lodash from 4.17.20 to 4.17.21', created_at: fourDaysAgo, head: { sha: 'sha1' } }),
-        createMockPR({ number: 2, title: 'Bump axios from 0.21.1 to 0.21.4',   created_at: fourDaysAgo, head: { sha: 'sha2' } })
-      ]
-    });
-
-    // Initial mergeability checks: PR1 → mergeable, PR2 → mergeable.
-    // Re-check after PR2 merge failure: first call returns null (GitHub still computing),
-    // second call returns true (mergeability resolved). Using mockReturnValueOnce to
-    // simulate advancing through time via call count rather than actual delays.
-    setupPullsGet(mockOctokit, [1, 2], [
-      { number: 2, mergeable: null,  mergeable_state: 'unknown', head: { sha: 'sha2' } },
-      { number: 2, mergeable: true,  mergeable_state: 'clean',   head: { sha: 'sha2' } }
-    ]);
-
-    mockOctokit.rest.pulls.merge
-      .mockResolvedValueOnce({}) // PR1 succeeds
-      .mockRejectedValueOnce(new Error('Base branch was modified. Review and try the merge again.')) // PR2 first attempt fails
-      .mockResolvedValueOnce({}); // PR2 retry succeeds
-
-    await run();
-
-    expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledTimes(3);
-    expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledWith(expect.objectContaining({ pull_number: 1 }));
-    expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledWith(expect.objectContaining({ pull_number: 2 }));
-
-    expect(core.info).toHaveBeenCalledWith(expect.stringContaining('Successfully merged PR #1'));
-    expect(core.info).toHaveBeenCalledWith(expect.stringContaining('Successfully merged PR #2 on retry'));
-
-    expect(core.warning).toHaveBeenCalledWith(
-      expect.stringContaining('PR #2 failed due to base branch modification. Re-verifying mergeability and retrying...')
-    );
-    expect(core.info).toHaveBeenCalledWith(
-      expect.stringContaining('Retrying merge for PR #2 after re-verification')
-    );
-
-    // pulls.get called twice for initial checks + twice for the re-check retry (null then true)
-    expect(mockOctokit.rest.pulls.get).toHaveBeenCalledTimes(4);
+    // pulls.get: 2 (scan) + 1 (re-check PR1) + 2 (re-check PR2: null then true)
+    expect(mockOctokit.rest.pulls.get).toHaveBeenCalledTimes(5);
   });
 });
