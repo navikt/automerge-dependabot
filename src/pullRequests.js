@@ -148,16 +148,47 @@ async function findMergeablePRs(octokit, owner, repo, minimumAgeInDays, retryDel
       continue;
     }
     
-    // Check for required checks
+    // Check for required checks (Status API — legacy commit statuses)
     const { data: combinedStatus } = await octokit.rest.repos.getCombinedStatusForRef({
       owner,
       repo,
       ref: pr.head.sha
     });
-    
+
     if (combinedStatus.state === 'failure') {
       recordFilterReason(pr.number, 'general', 'Has failing status checks');
       core.debug(`PR #${pr.number} has failing status checks`);
+      continue;
+    }
+
+    // Check for required checks (Checks API — GitHub Actions and modern CI providers)
+    const { data: checkRunsData } = await octokit.rest.checks.listForRef({
+      owner,
+      repo,
+      ref: pr.head.sha
+    });
+    const checkRuns = checkRunsData.check_runs || [];
+
+    const anyCheckFailed = checkRuns.some(run =>
+      run.conclusion === 'failure' ||
+      run.conclusion === 'cancelled' ||
+      run.conclusion === 'timed_out' ||
+      run.conclusion === 'action_required' ||
+      run.conclusion === 'stale'
+    );
+    const anyCheckPending = checkRuns.some(run =>
+      run.status === 'queued' || run.status === 'in_progress'
+    );
+
+    if (anyCheckFailed) {
+      recordFilterReason(pr.number, 'general', 'Has failing status checks');
+      core.debug(`PR #${pr.number} has failing check runs`);
+      continue;
+    }
+
+    if (anyCheckPending) {
+      recordFilterReason(pr.number, 'general', 'Has pending status checks');
+      core.debug(`PR #${pr.number} has pending check runs`);
       continue;
     }
     
