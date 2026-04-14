@@ -3,7 +3,7 @@ import * as core from '../__fixtures__/core.js';
 
 jest.unstable_mockModule('@actions/core', () => core);
 
-const { findMergeablePRs, extractMultipleDependencyInfo, checkPRMergeability, approvePullRequest, updatePRBranch, waitForChecksAfterUpdate } = await import('../src/pullRequests.js');
+const { findMergeablePRs, extractMultipleDependencyInfo, checkPRMergeability, approvePullRequest, updatePRBranch, waitForChecksAfterUpdate, evaluateChecks } = await import('../src/pullRequests.js');
 const { setupTestEnvironment, createMockPR } = await import('./helpers/mockSetup.js');
 
 describe('PullRequests Module', () => {
@@ -55,6 +55,7 @@ describe('PullRequests Module', () => {
 
     mockOctokit.rest.pulls.listReviews.mockResolvedValue({ data: [] });
     mockOctokit.rest.repos.getCombinedStatusForRef.mockResolvedValue({ data: { state: 'success' } });
+    mockOctokit.rest.checks.listForRef.mockResolvedValue({ data: { check_runs: [] } });
     
     // Mock current date to ensure deterministic age comparisons
     const mockDate = new Date('2025-05-12T00:00:00Z');
@@ -272,6 +273,7 @@ describe('PullRequests Module', () => {
     mockOctokit.rest.repos.getCombinedStatusForRef.mockResolvedValue({
       data: { state: 'success' }
     });
+    mockOctokit.rest.checks.listForRef.mockResolvedValue({ data: { check_runs: [] } });
 
     mockOctokit.rest.pulls.listReviews.mockResolvedValue({
       data: []
@@ -357,6 +359,7 @@ describe('PullRequests Module', () => {
     mockOctokit.rest.repos.getCombinedStatusForRef.mockResolvedValue({
       data: { state: 'success' }
     });
+    mockOctokit.rest.checks.listForRef.mockResolvedValue({ data: { check_runs: [] } });
 
     mockOctokit.rest.pulls.listReviews.mockResolvedValue({
       data: []
@@ -404,8 +407,9 @@ describe('PullRequests Module', () => {
 
     mockOctokit.rest.pulls.listReviews.mockResolvedValue({ data: [] });
     mockOctokit.rest.repos.getCombinedStatusForRef.mockResolvedValue({
-      data: { state: 'failure' } // Failing checks
+      data: { state: 'failure', total_count: 1 } // Failing legacy status
     });
+    mockOctokit.rest.checks.listForRef.mockResolvedValue({ data: { check_runs: [] } });
     
     // Use a date that ensures PRs are old enough
     const mockDate = new Date('2025-05-15T00:00:00Z');
@@ -423,6 +427,249 @@ describe('PullRequests Module', () => {
     expect(result.eligiblePRs.length).toBe(0);
   });
   
+  test('should filter out PRs with failing check runs (Checks API)', async () => {
+    // Regression test: the Status API (getCombinedStatusForRef) only covers legacy
+    // commit statuses. GitHub Actions check runs are reported via the Checks API
+    // (checks.listForRef). A PR whose Status API state is 'success' but has a
+    // failing check run must NOT be merged.
+    mockOctokit.rest.pulls.list.mockResolvedValue({
+      data: [
+        createMockPR({
+          title: 'Bump lodash from 4.17.20 to 4.17.21',
+          head: { ref: 'dependabot/npm_and_yarn/lodash-4.17.21', sha: 'abc123' },
+          created_at: '2025-05-10T10:00:00Z'
+        })
+      ]
+    });
+
+    mockOctokit.rest.pulls.get.mockResolvedValue({
+      data: { number: 1, mergeable: true }
+    });
+
+    mockOctokit.rest.pulls.listCommits.mockResolvedValue({
+      data: [{ sha: 'abc123def456', author: { login: 'dependabot[bot]' }, committer: { login: 'dependabot[bot]' } }]
+    });
+
+    mockOctokit.rest.pulls.listReviews.mockResolvedValue({ data: [] });
+
+    // Status API reports success (no legacy statuses), but a GitHub Actions
+    // check run has failed — this is the scenario that was previously missed.
+    mockOctokit.rest.repos.getCombinedStatusForRef.mockResolvedValue({
+      data: { state: 'success', total_count: 0 }
+    });
+    mockOctokit.rest.checks.listForRef.mockResolvedValue({
+      data: {
+        check_runs: [
+          { status: 'completed', conclusion: 'failure', name: 'ci / test' }
+        ]
+      }
+    });
+
+    const mockDate = new Date('2025-05-15T00:00:00Z');
+    global.Date = class extends Date {
+      constructor(...args) {
+        if (args.length === 0) {
+          return mockDate;
+        }
+        return new originalDate(...args);
+      }
+    };
+
+    const result = await findMergeablePRs(mockOctokit, 'owner', 'repo', 0);
+
+    expect(result.eligiblePRs.length).toBe(0);
+  });
+
+  test.each([
+    ['failure'],
+    ['cancelled'],
+    ['timed_out'],
+    ['action_required'],
+    ['stale'],
+  ])('should filter out PRs when a check run has conclusion "%s"', async (conclusion) => {
+    mockOctokit.rest.pulls.list.mockResolvedValue({
+      data: [
+        createMockPR({
+          title: 'Bump lodash from 4.17.20 to 4.17.21',
+          head: { ref: 'dependabot/npm_and_yarn/lodash-4.17.21', sha: 'abc123' },
+          created_at: '2025-05-10T10:00:00Z'
+        })
+      ]
+    });
+
+    mockOctokit.rest.pulls.get.mockResolvedValue({
+      data: { number: 1, mergeable: true }
+    });
+
+    mockOctokit.rest.pulls.listCommits.mockResolvedValue({
+      data: [{ sha: 'abc123def456', author: { login: 'dependabot[bot]' }, committer: { login: 'dependabot[bot]' } }]
+    });
+
+    mockOctokit.rest.pulls.listReviews.mockResolvedValue({ data: [] });
+    mockOctokit.rest.repos.getCombinedStatusForRef.mockResolvedValue({
+      data: { state: 'success', total_count: 0 }
+    });
+    mockOctokit.rest.checks.listForRef.mockResolvedValue({
+      data: {
+        check_runs: [{ status: 'completed', conclusion, name: 'ci / test' }]
+      }
+    });
+
+    const mockDate = new Date('2025-05-15T00:00:00Z');
+    global.Date = class extends Date {
+      constructor(...args) {
+        if (args.length === 0) {
+          return mockDate;
+        }
+        return new originalDate(...args);
+      }
+    };
+
+    const result = await findMergeablePRs(mockOctokit, 'owner', 'repo', 0);
+
+    expect(result.eligiblePRs.length).toBe(0);
+  });
+
+  test('should allow PRs where all check runs have passed', async () => {
+    // Verify the fix does not block PRs when checks are genuinely passing
+    mockOctokit.rest.pulls.list.mockResolvedValue({
+      data: [
+        createMockPR({
+          title: 'Bump lodash from 4.17.20 to 4.17.21',
+          head: { ref: 'dependabot/npm_and_yarn/lodash-4.17.21', sha: 'abc123' },
+          created_at: '2025-05-10T10:00:00Z'
+        })
+      ]
+    });
+
+    mockOctokit.rest.pulls.get.mockResolvedValue({
+      data: { number: 1, mergeable: true }
+    });
+
+    mockOctokit.rest.pulls.listCommits.mockResolvedValue({
+      data: [{ sha: 'abc123def456', author: { login: 'dependabot[bot]' }, committer: { login: 'dependabot[bot]' } }]
+    });
+
+    mockOctokit.rest.pulls.listReviews.mockResolvedValue({ data: [] });
+    mockOctokit.rest.repos.getCombinedStatusForRef.mockResolvedValue({
+      data: { state: 'success', total_count: 0 }
+    });
+    mockOctokit.rest.checks.listForRef.mockResolvedValue({
+      data: {
+        check_runs: [
+          { status: 'completed', conclusion: 'success', name: 'ci / test' },
+          { status: 'completed', conclusion: 'success', name: 'ci / lint' }
+        ]
+      }
+    });
+
+    const mockDate = new Date('2025-05-15T00:00:00Z');
+    global.Date = class extends Date {
+      constructor(...args) {
+        if (args.length === 0) {
+          return mockDate;
+        }
+        return new originalDate(...args);
+      }
+    };
+
+    const result = await findMergeablePRs(mockOctokit, 'owner', 'repo', 0);
+
+    expect(result.eligiblePRs.length).toBe(1);
+    expect(result.eligiblePRs[0].number).toBe(1);
+  });
+
+  test('should filter out PRs with pending check runs', async () => {
+    // A PR with in-progress checks must not be merged — the outcome is unknown.
+    mockOctokit.rest.pulls.list.mockResolvedValue({
+      data: [
+        createMockPR({
+          title: 'Bump lodash from 4.17.20 to 4.17.21',
+          head: { ref: 'dependabot/npm_and_yarn/lodash-4.17.21', sha: 'abc123' },
+          created_at: '2025-05-10T10:00:00Z'
+        })
+      ]
+    });
+
+    mockOctokit.rest.pulls.get.mockResolvedValue({
+      data: { number: 1, mergeable: true }
+    });
+
+    mockOctokit.rest.pulls.listCommits.mockResolvedValue({
+      data: [{ sha: 'abc123def456', author: { login: 'dependabot[bot]' }, committer: { login: 'dependabot[bot]' } }]
+    });
+
+    mockOctokit.rest.pulls.listReviews.mockResolvedValue({ data: [] });
+    mockOctokit.rest.repos.getCombinedStatusForRef.mockResolvedValue({
+      data: { state: 'pending', total_count: 0 }
+    });
+    mockOctokit.rest.checks.listForRef.mockResolvedValue({
+      data: {
+        check_runs: [
+          { status: 'in_progress', conclusion: null, name: 'ci / test' }
+        ]
+      }
+    });
+
+    const mockDate = new Date('2025-05-15T00:00:00Z');
+    global.Date = class extends Date {
+      constructor(...args) {
+        if (args.length === 0) {
+          return mockDate;
+        }
+        return new originalDate(...args);
+      }
+    };
+
+    const result = await findMergeablePRs(mockOctokit, 'owner', 'repo', 0);
+
+    expect(result.eligiblePRs.length).toBe(0);
+  });
+
+  test('should filter out PRs with pending legacy status checks (total_count > 0)', async () => {
+    // When the Status API returns "pending" with total_count > 0, a legacy status
+    // context is still running — we must not merge. total_count === 0 means no
+    // legacy statuses exist (GitHub Actions only), which is safe to proceed.
+    mockOctokit.rest.pulls.list.mockResolvedValue({
+      data: [
+        createMockPR({
+          title: 'Bump lodash from 4.17.20 to 4.17.21',
+          head: { ref: 'dependabot/npm_and_yarn/lodash-4.17.21', sha: 'abc123' },
+          created_at: '2025-05-10T10:00:00Z'
+        })
+      ]
+    });
+
+    mockOctokit.rest.pulls.get.mockResolvedValue({
+      data: { number: 1, mergeable: true }
+    });
+
+    mockOctokit.rest.pulls.listCommits.mockResolvedValue({
+      data: [{ sha: 'abc123def456', author: { login: 'dependabot[bot]' }, committer: { login: 'dependabot[bot]' } }]
+    });
+
+    mockOctokit.rest.pulls.listReviews.mockResolvedValue({ data: [] });
+    // "pending" with total_count > 0 = a legacy status context is still running
+    mockOctokit.rest.repos.getCombinedStatusForRef.mockResolvedValue({
+      data: { state: 'pending', total_count: 1 }
+    });
+    mockOctokit.rest.checks.listForRef.mockResolvedValue({ data: { check_runs: [] } });
+
+    const mockDate = new Date('2025-05-15T00:00:00Z');
+    global.Date = class extends Date {
+      constructor(...args) {
+        if (args.length === 0) {
+          return mockDate;
+        }
+        return new originalDate(...args);
+      }
+    };
+
+    const result = await findMergeablePRs(mockOctokit, 'owner', 'repo', 0);
+
+    expect(result.eligiblePRs.length).toBe(0);
+  });
+
   test('should filter out PRs with blocking reviews', async () => {
     mockOctokit.rest.pulls.list.mockResolvedValue({
       data: [
@@ -453,6 +700,7 @@ describe('PullRequests Module', () => {
     });
 
     mockOctokit.rest.repos.getCombinedStatusForRef.mockResolvedValue({ data: { state: 'success' } });
+    mockOctokit.rest.checks.listForRef.mockResolvedValue({ data: { check_runs: [] } });
     
     // Use a date that ensures PRs are old enough
     const mockDate = new Date('2025-05-15T00:00:00Z');
@@ -516,6 +764,9 @@ Updates dependency-B from 2.1.0 to 3.0.0
           getCombinedStatusForRef: jest.fn().mockResolvedValue({
             data: { state: 'success' }
           })
+        },
+        checks: {
+          listForRef: jest.fn().mockResolvedValue({ data: { check_runs: [] } })
         }
       }
     };
@@ -592,6 +843,9 @@ Updates dependency-B from 2.1.0 to 3.0.0
           getCombinedStatusForRef: jest.fn().mockResolvedValue({
             data: { state: 'success' }
           })
+        },
+        checks: {
+          listForRef: jest.fn().mockResolvedValue({ data: { check_runs: [] } })
         }
       }
     };
@@ -670,6 +924,9 @@ Updates dependency-B from 2.1.0 to 2.1.1
           getCombinedStatusForRef: jest.fn().mockResolvedValue({
             data: { state: 'success' }
           })
+        },
+        checks: {
+          listForRef: jest.fn().mockResolvedValue({ data: { check_runs: [] } })
         }
       }
     };
@@ -1118,5 +1375,64 @@ Updates dependency-B from 2.1.0 to 2.1.1
       expect(result).toBe(true);
       expect(mockOctokit.rest.checks.listForRef).toHaveBeenCalledTimes(2);
     });
+  });
+});
+
+describe('evaluateChecks', () => {
+  const noCheckRuns = [];
+  const passing = { state: 'success', total_count: 1 };
+  const noLegacy = { state: 'pending', total_count: 0 };
+
+  test('returns failed=false, pending=false when all checks pass', () => {
+    const checkRuns = [{ status: 'completed', conclusion: 'success' }];
+    expect(evaluateChecks(passing, checkRuns)).toEqual({ failed: false, pending: false });
+  });
+
+  test('returns failed=false, pending=false when there are no checks at all', () => {
+    expect(evaluateChecks(noLegacy, noCheckRuns)).toEqual({ failed: false, pending: false });
+  });
+
+  test('returns failed=true when Status API reports failure', () => {
+    expect(evaluateChecks({ state: 'failure', total_count: 1 }, noCheckRuns)).toEqual({ failed: true, pending: false });
+  });
+
+  test.each(['failure', 'cancelled', 'timed_out', 'action_required', 'stale'])(
+    'returns failed=true when a check run has conclusion "%s"',
+    (conclusion) => {
+      const checkRuns = [{ status: 'completed', conclusion }];
+      expect(evaluateChecks(noLegacy, checkRuns)).toEqual({ failed: true, pending: false });
+    }
+  );
+
+  test('returns pending=true when Status API is pending with total_count > 0', () => {
+    expect(evaluateChecks({ state: 'pending', total_count: 1 }, noCheckRuns)).toEqual({ failed: false, pending: true });
+  });
+
+  test('does NOT treat pending with total_count === 0 as pending (no legacy statuses)', () => {
+    expect(evaluateChecks({ state: 'pending', total_count: 0 }, noCheckRuns)).toEqual({ failed: false, pending: false });
+  });
+
+  test.each(['queued', 'in_progress'])(
+    'returns pending=true when a check run has status "%s"',
+    (status) => {
+      const checkRuns = [{ status, conclusion: null }];
+      expect(evaluateChecks(noLegacy, checkRuns)).toEqual({ failed: false, pending: true });
+    }
+  );
+
+  test('failed takes precedence over pending', () => {
+    const checkRuns = [
+      { status: 'completed', conclusion: 'failure' },
+      { status: 'in_progress', conclusion: null }
+    ];
+    expect(evaluateChecks(noLegacy, checkRuns)).toEqual({ failed: true, pending: true });
+  });
+
+  test('neutral and skipped conclusions are not treated as failures', () => {
+    const checkRuns = [
+      { status: 'completed', conclusion: 'neutral' },
+      { status: 'completed', conclusion: 'skipped' }
+    ];
+    expect(evaluateChecks(passing, checkRuns)).toEqual({ failed: false, pending: false });
   });
 });

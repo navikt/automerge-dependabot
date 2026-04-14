@@ -65,6 +65,53 @@ function determineSemverChange(fromVersion, toVersion) {
 }
 
 /**
+ * Evaluate the combined status and check runs for a given commit ref.
+ *
+ * GitHub exposes two separate APIs for CI results:
+ *
+ * 1. Status API  (legacy) — GET /repos/{owner}/{repo}/commits/{ref}/status
+ *    https://docs.github.com/en/rest/commits/statuses#get-the-combined-status-for-a-specific-reference
+ *    Combined state is one of: "failure" | "pending" | "success"
+ *    - "failure"  → at least one context reported "error" or "failure"
+ *    - "pending"  → no statuses exist (total_count === 0) OR a context is still pending
+ *    - "success"  → all contexts reported success
+ *
+ * 2. Checks API (modern) — GET /repos/{owner}/{repo}/commits/{ref}/check-runs
+ *    https://docs.github.com/en/rest/checks/runs#list-check-runs-for-a-git-reference
+ *    Each check run has a "status" (queued | in_progress | completed | waiting | requested | pending)
+ *    and, when completed, a "conclusion" (success | failure | neutral | cancelled | skipped |
+ *    timed_out | action_required | stale).
+ *    GitHub Actions and all modern CI providers use this API exclusively.
+ *
+ * @param {Object} combinedStatus - Response data from getCombinedStatusForRef
+ * @param {Array}  checkRuns      - Array of check run objects from checks.listForRef
+ * @returns {{ failed: boolean, pending: boolean }}
+ */
+function evaluateChecks(combinedStatus, checkRuns) {
+  // Status API: "failure" covers both "error" and "failure" individual states.
+  // "pending" with total_count > 0 means a legacy status is still running.
+  const statusFailed  = combinedStatus.state === 'failure';
+  const statusPending = combinedStatus.state === 'pending' && combinedStatus.total_count > 0;
+
+  // Checks API: these conclusions mean the check did not pass cleanly.
+  const anyCheckFailed = checkRuns.some(run =>
+    run.conclusion === 'failure' ||
+    run.conclusion === 'cancelled' ||
+    run.conclusion === 'timed_out' ||
+    run.conclusion === 'action_required' ||
+    run.conclusion === 'stale'
+  );
+  const anyCheckPending = checkRuns.some(run =>
+    run.status === 'queued' || run.status === 'in_progress'
+  );
+
+  return {
+    failed:  statusFailed  || anyCheckFailed,
+    pending: statusPending || anyCheckPending,
+  };
+}
+
+/**
  * Find pull requests that are eligible for auto-merging
  * 
  * @param {Object} octokit - GitHub API client
@@ -148,16 +195,32 @@ async function findMergeablePRs(octokit, owner, repo, minimumAgeInDays, retryDel
       continue;
     }
     
-    // Check for required checks
+    // Check for required checks — Status API (legacy) and Checks API (GitHub Actions / modern CI).
+    // See evaluateChecks() above for documentation on both APIs.
     const { data: combinedStatus } = await octokit.rest.repos.getCombinedStatusForRef({
       owner,
       repo,
       ref: pr.head.sha
     });
-    
-    if (combinedStatus.state === 'failure') {
-      recordFilterReason(pr.number, 'general', 'Has failing status checks');
-      core.debug(`PR #${pr.number} has failing status checks`);
+    const { data: checkRunsData } = await octokit.rest.checks.listForRef({
+      owner,
+      repo,
+      ref: pr.head.sha
+    });
+    const { failed: checksFailed, pending: checksPending } = evaluateChecks(
+      combinedStatus,
+      checkRunsData.check_runs || []
+    );
+
+    if (checksFailed) {
+      recordFilterReason(pr.number, 'general', 'Has failing checks');
+      core.debug(`PR #${pr.number} has failing checks`);
+      continue;
+    }
+
+    if (checksPending) {
+      recordFilterReason(pr.number, 'general', 'Has pending checks');
+      core.debug(`PR #${pr.number} has pending checks`);
       continue;
     }
     
@@ -484,43 +547,31 @@ async function waitForChecksAfterUpdate(octokit, owner, repo, pullNumber, maxWai
       const prDetails = await checkPRMergeability(octokit, owner, repo, pullNumber, retryDelayMs);
       
       if (prDetails) {
-        // Get combined commit status (Status API)
+        // Evaluate both APIs via shared helper — see evaluateChecks() for API documentation.
         const { data: combinedStatus } = await octokit.rest.repos.getCombinedStatusForRef({
           owner,
           repo,
           ref: prDetails.head.sha
         });
-
-        // Get check runs (Checks API – used by GitHub Actions and modern CI providers)
         const { data: checkRunsData } = await octokit.rest.checks.listForRef({
           owner,
           repo,
           ref: prDetails.head.sha
         });
-        const checkRuns = checkRunsData.check_runs || [];
-
-        const statusFailed = combinedStatus.state === 'failure';
-        const anyCheckFailed = checkRuns.some(run =>
-          run.conclusion === 'failure' ||
-          run.conclusion === 'cancelled' ||
-          run.conclusion === 'timed_out' ||
-          run.conclusion === 'action_required' ||
-          run.conclusion === 'stale'
-        );
-        const anyCheckPending = checkRuns.some(run =>
-          run.status === 'queued' || run.status === 'in_progress'
+        const { failed: checksFailed, pending: checksPending } = evaluateChecks(
+          combinedStatus,
+          checkRunsData.check_runs || []
         );
         const statusSuccess = combinedStatus.state === 'success' || combinedStatus.total_count === 0;
-        const allChecksCompleted = !anyCheckPending && !anyCheckFailed;
 
-        // If status is failure, no point in waiting
-        if (statusFailed || anyCheckFailed) {
+        // If any check has failed, no point in waiting
+        if (checksFailed) {
           core.warning(`Checks failed for PR #${pullNumber} after branch update`);
           return false;
         }
         
-        // Check if checks are passing
-        if (prDetails.mergeable && statusSuccess && allChecksCompleted) {
+        // Check if all checks are passing
+        if (prDetails.mergeable && statusSuccess && !checksPending) {
           core.info(`Checks passed for PR #${pullNumber} after ${Math.round((Date.now() - startTime) / 1000)}s`);
           return true;
         }
@@ -565,5 +616,6 @@ export {
   checkPRMergeability,
   approvePullRequest,
   updatePRBranch,
-  waitForChecksAfterUpdate
+  waitForChecksAfterUpdate,
+  evaluateChecks
 };
