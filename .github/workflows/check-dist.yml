@@ -35,7 +35,7 @@ jobs:
 
       - name: Setup pnpm
         id: setup-pnpm
-        uses: pnpm/action-setup@903f9c1a6ebcba6cf41d87230be49611ac97822e # ratchet:pnpm/action-setup@v4
+        uses: pnpm/action-setup@739bfe42ca9233c5e6aca07c1a25a9d34aca49b0 # ratchet:pnpm/action-setup@v4
         with:
           version: '10.30.1'
 
