@@ -14,17 +14,17 @@ validate: lint test
 # Run tests
 test:
 	@echo "Running tests..."
-	npm test
+	pnpm test
 
 # Run linting
 lint:
 	@echo "Running linter..."
-	npm run lint
+	pnpm run lint
 
 # Build the project
 build:
 	@echo "Building project..."
-	npm run build
+	pnpm run build
 
 # Clean build artifacts
 clean:
@@ -35,7 +35,7 @@ clean:
 # Install dependencies
 install:
 	@echo "Installing dependencies..."
-	npm install
+	pnpm install
 
 # Show help
 help:
