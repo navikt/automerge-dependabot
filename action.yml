@@ -27,6 +27,9 @@ inputs:
   always-allow-labels:
     description: Comma-separated list of PR labels that will bypass all filters and allow automerging (e.g., "automerge,dependencies")
     required: false
+  required-labels:
+    description: Comma-separated list of PR labels where at least one must be present for the PR to be automerged (e.g., "javascript"). PRs without any of these labels are skipped. Empty means no restriction.
+    required: false
   ignored-versions:
     description: Comma-separated list of specific versions to ignore (format package@version, e.g., "lodash@4.17.21,axios@0.21.1")
     required: false

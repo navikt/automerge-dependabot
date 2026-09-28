@@ -132,6 +132,7 @@ async function runCli(options) {
       ignoredDependencies: options.ignoredDependencies ? options.ignoredDependencies.split(',').map(d => d.trim()) : [],
       alwaysAllow: options.alwaysAllow ? options.alwaysAllow.split(',').map(d => d.trim()) : [],
       alwaysAllowLabels: options.alwaysAllowLabels ? options.alwaysAllowLabels.split(',').map(l => l.trim()) : [],
+      requiredLabels: options.requiredLabels ? options.requiredLabels.split(',').map(l => l.trim()).filter(Boolean) : [],
       ignoredVersions: options.ignoredVersions ? options.ignoredVersions.split(',').map(v => v.trim()) : [],
       semverFilter: options.semverFilter ? options.semverFilter.split(',').map(s => s.trim()) : ['patch', 'minor']
     };
@@ -148,6 +149,9 @@ async function runCli(options) {
     }
     if (filterOptions.alwaysAllowLabels.length > 0) {
       console.log(`   • Always allow labels: ${filterOptions.alwaysAllowLabels.join(', ')}`);
+    }
+    if (filterOptions.requiredLabels.length > 0) {
+      console.log(`   • Required labels: ${filterOptions.requiredLabels.join(', ')}`);
     }
     if (filterOptions.alwaysAllow.length > 0) {
       console.log(`   • Always allow: ${filterOptions.alwaysAllow.join(', ')}`);
@@ -349,6 +353,7 @@ Options for 'run':
   --ignored-dependencies <deps>      Comma-separated list of dependencies to ignore
   --always-allow <patterns>          Comma-separated list of patterns to always allow
   --always-allow-labels <labels>     Comma-separated list of PR labels that bypass all filters
+  --required-labels <labels>         Only merge PRs that have at least one of these labels
   --ignored-versions <versions>      Comma-separated list of specific versions to ignore
   --semver-filter <levels>           Semver levels to allow (default: patch,minor)
   --merge-method <method>            Merge method: merge, squash, rebase (default: merge)
@@ -443,6 +448,7 @@ async function main() {
       'ignored-dependencies': { type: 'string' },
       'always-allow':         { type: 'string' },
       'always-allow-labels':  { type: 'string' },
+      'required-labels':      { type: 'string' },
       'ignored-versions':     { type: 'string' },
       'semver-filter':        { type: 'string', default: 'patch,minor' },
       'merge-method':         { type: 'string', default: 'merge' },
@@ -472,6 +478,7 @@ async function main() {
     ignoredDependencies:  values['ignored-dependencies'],
     alwaysAllow:          values['always-allow'],
     alwaysAllowLabels:    values['always-allow-labels'],
+    requiredLabels:       values['required-labels'],
     ignoredVersions:      values['ignored-versions'],
     semverFilter:         values['semver-filter'],
     mergeMethod:          values['merge-method'],

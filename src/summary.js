@@ -46,6 +46,7 @@ async function addWorkflowSummary(allPRs, prsToMerge, mergedPRNumbers, filters, 
     core.summary.addRaw(createTableHeader(['Filter Type', 'Value']) + '\n');
     core.summary.addRaw(`| Always Allow | ${filters.alwaysAllow.length > 0 ? filters.alwaysAllow.join(', ') : 'None'} |\n`);
     core.summary.addRaw(`| Always Allow Labels | ${filters.alwaysAllowLabels && filters.alwaysAllowLabels.length > 0 ? filters.alwaysAllowLabels.join(', ') : 'None'} |\n`);
+    core.summary.addRaw(`| Required Labels | ${filters.requiredLabels && filters.requiredLabels.length > 0 ? filters.requiredLabels.join(', ') : 'None'} |\n`);
     core.summary.addRaw(`| Ignored Versions | ${filters.ignoredVersions.length > 0 ? filters.ignoredVersions.join(', ') : 'None'} |\n`);
     core.summary.addRaw(`| Ignored Dependencies | ${filters.ignoredDependencies.length > 0 ? filters.ignoredDependencies.join(', ') : 'None'} |\n`);
     core.summary.addRaw(`| Semver Filter | ${filters.semverFilter.join(', ')} |\n\n`);
