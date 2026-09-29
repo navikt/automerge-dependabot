@@ -99,6 +99,21 @@ Examples:
 
 **Note:** Label matching is case-insensitive. The label `AutoMerge` will match `automerge` in the configuration.
 
+### `required-labels`
+
+Comma-separated list of PR labels. When set, a PR must have **at least one** of these labels to be automerged. PRs without any of them are skipped. Default: empty (no restriction, all Dependabot PRs are considered).
+
+Useful in monorepos where you only want to automerge a subset of the Dependabot PRs, for example only frontend PRs labelled `javascript`:
+
+```yaml
+with:
+  required-labels: 'javascript'
+```
+
+The PRs that pass this check still go through the other filters (`semver-filter`, `ignored-dependencies` and so on). `required-labels` is checked before `always-allow-labels`, so `always-allow-labels` cannot bypass it.
+
+**Note:** Label matching is case-insensitive.
+
 ### `ignored-versions`
 
 Comma-separated list of specific versions to ignore. Format: `package@version`.
@@ -229,7 +244,8 @@ jobs:
    - No failing status checks
    - No blocking pull request reviews  
 6. Extracts dependency information and applies filters:
-   - **First:** Checks if PR has an allowed label (if always-allow-labels is configured) - if yes, bypasses all other filters
+   - **First:** Checks if PR has at least one required label (if required-labels is configured) - if not, the PR is skipped
+   - Checks if PR has an allowed label (if always-allow-labels is configured) - if yes, bypasses all other filters
    - Checks if dependency is in ignored-dependencies list
    - Checks if version is in ignored-versions list
    - Checks if dependency matches always-allow pattern - if yes, bypasses semver filter

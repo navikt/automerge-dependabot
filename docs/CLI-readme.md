@@ -33,6 +33,7 @@ Options:
   --ignored-dependencies <deps>  Comma-separated list of dependencies to ignore
   --always-allow <patterns>      Comma-separated list of patterns to always allow
   --always-allow-labels <labels> Comma-separated list of PR labels that bypass all filters
+  --required-labels <labels>     Only merge PRs that have at least one of these labels
   --ignored-versions <versions>  Comma-separated list of specific versions to ignore
   --semver-filter <levels>       Semver levels to allow (major,minor,patch,unknown) (default: "patch,minor")
   --merge-method <method>        Merge method (merge, squash, rebase) (default: "merge")

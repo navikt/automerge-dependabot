@@ -37021,6 +37021,21 @@ function shouldAlwaysAllowByLabel(prLabels, alwaysAllowLabelsList) {
 }
 
 /**
+ * Check if a PR satisfies the required-labels list (PR must have at least one of them).
+ * An empty or missing list means no restriction.
+ *
+ * @param {Array} prLabels - Array of label objects from the PR
+ * @param {Array} requiredLabelsList - List of label names where at least one is required
+ * @returns {boolean} Whether the PR satisfies the required labels
+ */
+function hasRequiredLabel(prLabels, requiredLabelsList) {
+  if (!requiredLabelsList || requiredLabelsList.length === 0) {
+    return true;
+  }
+  return shouldAlwaysAllowByLabel(prLabels, requiredLabelsList);
+}
+
+/**
  * Check if a dependency should always be allowed based on the alwaysAllow list
  * 
  * @param {string} name - The dependency name
@@ -37133,10 +37148,11 @@ function validateDependency(prNumber, dependencyInfo, filters) {
  * @returns {Array} Filtered pull requests
  */
 function applyFilters(pullRequests, filters) {
-  const { ignoredDependencies, alwaysAllow = [], alwaysAllowLabels = [], ignoredVersions, semverFilter } = filters;
+  const { ignoredDependencies, alwaysAllow = [], alwaysAllowLabels = [], requiredLabels = [], ignoredVersions, semverFilter } = filters;
 
   info(`Applying filters: ${
     [
+      requiredLabels.length > 0 ? `Required labels: ${requiredLabels.join(', ')}` : null,
       ignoredDependencies.length > 0 ? `Ignored dependencies: ${ignoredDependencies.join(', ')}` : null,
       alwaysAllow.length > 0 ? `Always allow: ${alwaysAllow.join(', ')}` : null,
       alwaysAllowLabels.length > 0 ? `Always allow labels: ${alwaysAllowLabels.join(', ')}` : null,
@@ -37149,6 +37165,14 @@ function applyFilters(pullRequests, filters) {
     // Security check: Ensure PR is created by Dependabot
     if (!pr.user || pr.user.login !== 'dependabot[bot]') {
       const reason = `Not created by Dependabot (creator: ${pr.user?.login || 'unknown'})`;
+      recordFilterReason(pr.number, 'general', reason);
+      debug(`PR #${pr.number}: Skipping - ${reason}`);
+      return false;
+    }
+
+    // Required labels act as a hard gate and cannot be bypassed by always-allow-labels
+    if (!hasRequiredLabel(pr.labels, requiredLabels)) {
+      const reason = `Missing required label (one of: ${requiredLabels.join(', ')})`;
       recordFilterReason(pr.number, 'general', reason);
       debug(`PR #${pr.number}: Skipping - ${reason}`);
       return false;
@@ -37847,6 +37871,7 @@ async function addWorkflowSummary(allPRs, prsToMerge, mergedPRNumbers, filters, 
     summary.addRaw(createTableHeader(['Filter Type', 'Value']) + '\n');
     summary.addRaw(`| Always Allow | ${filters.alwaysAllow.length > 0 ? filters.alwaysAllow.join(', ') : 'None'} |\n`);
     summary.addRaw(`| Always Allow Labels | ${filters.alwaysAllowLabels && filters.alwaysAllowLabels.length > 0 ? filters.alwaysAllowLabels.join(', ') : 'None'} |\n`);
+    summary.addRaw(`| Required Labels | ${filters.requiredLabels && filters.requiredLabels.length > 0 ? filters.requiredLabels.join(', ') : 'None'} |\n`);
     summary.addRaw(`| Ignored Versions | ${filters.ignoredVersions.length > 0 ? filters.ignoredVersions.join(', ') : 'None'} |\n`);
     summary.addRaw(`| Ignored Dependencies | ${filters.ignoredDependencies.length > 0 ? filters.ignoredDependencies.join(', ') : 'None'} |\n`);
     summary.addRaw(`| Semver Filter | ${filters.semverFilter.join(', ')} |\n\n`);
@@ -38079,6 +38104,7 @@ async function run() {
     const ignoredDependencies = getInput('ignored-dependencies');
     const alwaysAllow = getInput('always-allow');
     const alwaysAllowLabels = getInput('always-allow-labels');
+    const requiredLabels = getInput('required-labels');
     const ignoredVersions = getInput('ignored-versions');
     const semverFilter = getInput('semver-filter');
     const mergeMethod = getInput('merge-method');
@@ -38094,6 +38120,7 @@ async function run() {
       ignoredDependencies: ignoredDependencies ? ignoredDependencies.split(',').map(d => d.trim()) : [],
       alwaysAllow: alwaysAllow ? alwaysAllow.split(',').map(d => d.trim()) : [],
       alwaysAllowLabels: alwaysAllowLabels ? alwaysAllowLabels.split(',').map(l => l.trim()) : [],
+      requiredLabels: requiredLabels ? requiredLabels.split(',').map(l => l.trim()).filter(Boolean) : [],
       ignoredVersions: ignoredVersions ? ignoredVersions.split(',').map(v => v.trim()) : [],
       semverFilter: semverFilter ? semverFilter.split(',').map(s => s.trim()) : ['patch', 'minor']
     };
