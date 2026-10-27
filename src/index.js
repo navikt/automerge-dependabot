@@ -198,13 +198,17 @@ async function run() {
               core.info(`Attempting to merge PR #${pr.number}: ${pr.title}`);
               
               try {
-                await octokit.rest.pulls.merge({
+                const { data } = await octokit.rest.pulls.merge({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   pull_number: pr.number,
                   merge_method: mergeMethod,
                   ...(updatedHeadSha ? { sha: updatedHeadSha } : {})
                 });
+
+                if (data.merged !== true) {
+                  throw new Error(data.message || 'GitHub did not confirm the merge');
+                }
                 
                 core.info(`Successfully merged PR #${pr.number}`);
                 mergedPRCount++;
@@ -244,13 +248,17 @@ async function run() {
                   
                   // Retry the merge
                   core.info(`Retrying merge for PR #${pr.number} after re-verification`);
-                  await octokit.rest.pulls.merge({
+                  const { data } = await octokit.rest.pulls.merge({
                     owner: context.repo.owner,
                     repo: context.repo.repo,
                     pull_number: pr.number,
                     merge_method: mergeMethod,
                     ...(updatedHeadSha ? { sha: updatedHeadSha } : {})
                   });
+
+                  if (data.merged !== true) {
+                    throw new Error(data.message || 'GitHub did not confirm the merge', { cause: mergeError });
+                  }
                   
                   core.info(`Successfully merged PR #${pr.number} on retry`);
                   mergedPRCount++;
@@ -282,7 +290,7 @@ async function run() {
                 }
               }
             } catch (error) {
-              core.warning(`Failed to merge PR #${pr.number}: ${error.message}`);
+              core.setFailed(`Failed to merge PR #${pr.number}: ${error.message}`);
               recordFilterReason(pr.number, 'merge', `Merge failed: ${error.message}`);
             }
           }

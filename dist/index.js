@@ -38330,13 +38330,17 @@ async function run() {
               info(`Attempting to merge PR #${pr.number}: ${pr.title}`);
               
               try {
-                await octokit.rest.pulls.merge({
+                const { data } = await octokit.rest.pulls.merge({
                   owner: context$1.repo.owner,
                   repo: context$1.repo.repo,
                   pull_number: pr.number,
                   merge_method: mergeMethod,
                   ...(updatedHeadSha ? { sha: updatedHeadSha } : {})
                 });
+
+                if (data.merged !== true) {
+                  throw new Error(data.message || 'GitHub did not confirm the merge');
+                }
                 
                 info(`Successfully merged PR #${pr.number}`);
                 mergedPRCount++;
@@ -38376,13 +38380,17 @@ async function run() {
                   
                   // Retry the merge
                   info(`Retrying merge for PR #${pr.number} after re-verification`);
-                  await octokit.rest.pulls.merge({
+                  const { data } = await octokit.rest.pulls.merge({
                     owner: context$1.repo.owner,
                     repo: context$1.repo.repo,
                     pull_number: pr.number,
                     merge_method: mergeMethod,
                     ...(updatedHeadSha ? { sha: updatedHeadSha } : {})
                   });
+
+                  if (data.merged !== true) {
+                    throw new Error(data.message || 'GitHub did not confirm the merge', { cause: mergeError });
+                  }
                   
                   info(`Successfully merged PR #${pr.number} on retry`);
                   mergedPRCount++;
@@ -38414,7 +38422,7 @@ async function run() {
                 }
               }
             } catch (error) {
-              warning(`Failed to merge PR #${pr.number}: ${error.message}`);
+              setFailed(`Failed to merge PR #${pr.number}: ${error.message}`);
               recordFilterReason(pr.number, 'merge', `Merge failed: ${error.message}`);
             }
           }
