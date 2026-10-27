@@ -14,6 +14,7 @@ const { run } = await import('../src/index.js');
 
 describe('run', () => {
   const mockOctokit = {
+    graphql: jest.fn(),
     rest: {
       pulls: {
         merge: jest.fn(),
@@ -112,6 +113,9 @@ describe('run', () => {
     
     mockOctokit.rest.pulls.merge.mockResolvedValue({});
     mockOctokit.rest.pulls.updateBranch.mockResolvedValue({});
+    mockOctokit.graphql.mockResolvedValue({
+      updatePullRequestBranch: { pullRequest: { headRefOid: 'rebased123' } }
+    });
     mockOctokit.rest.checks.listForRef.mockResolvedValue({ data: { check_runs: [] } });
   });
 
@@ -849,19 +853,18 @@ describe('run', () => {
         return defaultInputs[name] || '';
       });
 
-      let getCallCount = 0;
+      let secondPRReads = 0;
       mockOctokit.rest.pulls.get.mockImplementation(({ pull_number }) => {
-        getCallCount++;
         if (pull_number === 1) {
           return { data: { mergeable: true, mergeable_state: 'clean', head: { sha: 'abc123' } } };
         }
-        // PR #2: first call (during scan) returns clean, subsequent call (pre-merge re-check) returns behind
-        const isBehind = getCallCount > 2;
+        secondPRReads++;
         return {
           data: {
+            node_id: 'PR_2',
             mergeable: true,
-            mergeable_state: isBehind ? 'behind' : 'clean',
-            head: { sha: 'def456' }
+            mergeable_state: secondPRReads === 2 ? 'behind' : 'clean',
+            head: { sha: secondPRReads > 2 ? 'rebased456' : 'def456' }
           }
         };
       });
@@ -871,9 +874,9 @@ describe('run', () => {
 
       const result = await run();
 
-      // updateBranch should have been called for PR #2 (fresh state showed 'behind')
-      expect(mockOctokit.rest.pulls.updateBranch).toHaveBeenCalledWith(
-        expect.objectContaining({ pull_number: 2 })
+      expect(mockOctokit.graphql).toHaveBeenCalledWith(
+        expect.any(String),
+        { pullRequestId: 'PR_2', expectedHeadOid: 'def456' }
       );
       expect(result).toBe(2);
     });
@@ -1197,35 +1200,148 @@ describe('run', () => {
       mockOctokit.rest.pulls.list.mockResolvedValue({ data: [behindPR] });
     });
 
-    test('merges PR after successful branch update and passing checks', async () => {
-      // First pulls.get (findMergeablePRs): PR is behind
-      // Second pulls.get (pre-merge re-check): still behind → triggers update flow
-      // Subsequent (waitForChecksAfterUpdate): clean
+    test('uses native API rebase and merges only the validated updated head', async () => {
+      const behindDetails = {
+        node_id: 'PR_1',
+        mergeable: true,
+        mergeable_state: 'behind',
+        head: { sha: 'abc123' }
+      };
       mockOctokit.rest.pulls.get
-        .mockResolvedValueOnce({ data: { mergeable: true, mergeable_state: 'behind', head: { sha: 'abc123' } } })
-        .mockResolvedValueOnce({ data: { mergeable: true, mergeable_state: 'behind', head: { sha: 'abc123' } } })
-        .mockResolvedValue({ data: { mergeable: true, mergeable_state: 'clean', head: { sha: 'abc123' } } });
+        .mockResolvedValueOnce({ data: behindDetails })
+        .mockResolvedValueOnce({ data: behindDetails })
+        .mockResolvedValue({
+          data: { ...behindDetails, mergeable_state: 'clean', head: { sha: 'rebased123' } }
+        });
+
+      expect(await run()).toBe(1);
+
+      expect(mockOctokit.graphql).toHaveBeenCalledWith(
+        expect.stringContaining('updatePullRequestBranch'),
+        { pullRequestId: 'PR_1', expectedHeadOid: 'abc123' }
+      );
+      expect(mockOctokit.graphql.mock.calls[0][0]).toContain('updateMethod: REBASE');
+      expect(mockOctokit.rest.pulls.updateBranch).not.toHaveBeenCalled();
+      expect(mockOctokit.rest.repos.getCombinedStatusForRef).toHaveBeenLastCalledWith({
+        owner: 'owner', repo: 'repo', ref: 'rebased123'
+      });
+      expect(mockOctokit.rest.pulls.listCommits).toHaveBeenCalledTimes(2);
+      expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledWith({
+        owner: 'owner', repo: 'repo', pull_number: 1, merge_method: 'merge', sha: 'rebased123'
+      });
+    });
+
+    test('does not merge while the old head still has successful checks', async () => {
+      jest.useFakeTimers();
+      try {
+        core.getInput.mockImplementation(name => {
+          if (name === 'update-branch-before-merge') return 'true';
+          if (name === 'max-update-wait-seconds') return '1';
+          return defaultInputs[name] || '';
+        });
+        mockOctokit.rest.pulls.get.mockResolvedValue({
+          data: {
+            node_id: 'PR_1',
+            mergeable: true,
+            mergeable_state: 'behind',
+            head: { sha: 'abc123' }
+          }
+        });
+
+        const result = run();
+        await jest.advanceTimersByTimeAsync(1100);
+
+        expect(await result).toBe(0);
+        expect(mockOctokit.rest.pulls.merge).not.toHaveBeenCalled();
+        expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('Timeout waiting for checks'));
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    test('does not merge when the updated head contains non-Dependabot commits', async () => {
+      const behindDetails = {
+        node_id: 'PR_1',
+        mergeable: true,
+        mergeable_state: 'behind',
+        head: { sha: 'abc123' }
+      };
+      mockOctokit.rest.pulls.get
+        .mockResolvedValueOnce({ data: behindDetails })
+        .mockResolvedValueOnce({ data: behindDetails })
+        .mockResolvedValue({
+          data: { ...behindDetails, mergeable_state: 'clean', head: { sha: 'rebased123' } }
+        });
+      mockOctokit.rest.pulls.listCommits
+        .mockResolvedValueOnce({
+          data: [{ sha: 'abc123', author: { login: 'dependabot[bot]' } }]
+        })
+        .mockResolvedValue({
+          data: [{ sha: 'rebased123', author: { login: 'custom-app[bot]' }, committer: { login: 'custom-app[bot]' } }]
+        });
+
+      expect(await run()).toBe(0);
+      expect(mockOctokit.rest.pulls.merge).not.toHaveBeenCalled();
+      expect(core.warning).toHaveBeenCalledWith(
+        expect.stringContaining('contains commits from authors other than Dependabot')
+      );
+    });
+
+    test('keeps the validated head pinned when retrying after a base branch change', async () => {
+      mockOctokit.rest.pulls.get
+        .mockResolvedValueOnce({ data: { node_id: 'PR_1', mergeable: true, mergeable_state: 'behind', head: { sha: 'abc123' } } })
+        .mockResolvedValueOnce({ data: { node_id: 'PR_1', mergeable: true, mergeable_state: 'behind', head: { sha: 'abc123' } } })
+        .mockResolvedValue({ data: { mergeable: true, mergeable_state: 'clean', head: { sha: 'rebased123' } } });
+      mockOctokit.rest.pulls.merge
+        .mockRejectedValueOnce(new Error('Base branch was modified'))
+        .mockResolvedValue({});
 
       const result = await run();
 
-      expect(mockOctokit.rest.pulls.updateBranch).toHaveBeenCalledWith(
-        expect.objectContaining({ pull_number: 1 })
-      );
-      expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledTimes(1);
+      expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledTimes(2);
+      for (const [request] of mockOctokit.rest.pulls.merge.mock.calls) {
+        expect(request).toMatchObject({ sha: 'rebased123', merge_method: 'merge' });
+      }
       expect(result).toBe(1);
+    });
+
+    test('does not retry a merge after the validated rebased head changes', async () => {
+      const behindDetails = {
+        node_id: 'PR_1',
+        mergeable: true,
+        mergeable_state: 'behind',
+        head: { sha: 'abc123' }
+      };
+      const updatedDetails = {
+        ...behindDetails, mergeable_state: 'clean', head: { sha: 'rebased123' }
+      };
+      mockOctokit.rest.pulls.get
+        .mockResolvedValueOnce({ data: behindDetails })
+        .mockResolvedValueOnce({ data: behindDetails })
+        .mockResolvedValueOnce({ data: updatedDetails })
+        .mockResolvedValueOnce({ data: updatedDetails })
+        .mockResolvedValue({
+          data: { ...updatedDetails, head: { sha: 'changed123' } }
+        });
+      mockOctokit.rest.pulls.merge.mockRejectedValueOnce(new Error('Base branch was modified'));
+
+      expect(await run()).toBe(0);
+      expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledTimes(1);
+      expect(core.warning).toHaveBeenCalledWith(
+        expect.stringContaining('branch changed after rebase validation')
+      );
     });
 
     test('skips merge when branch update fails', async () => {
       mockOctokit.rest.pulls.get.mockResolvedValue({
-        data: { mergeable: true, mergeable_state: 'behind', head: { sha: 'abc123' } }
+        data: { node_id: 'PR_1', mergeable: true, mergeable_state: 'behind', head: { sha: 'abc123' } }
       });
-      mockOctokit.rest.pulls.updateBranch.mockRejectedValue(new Error('Merge conflict'));
+      mockOctokit.graphql.mockRejectedValue(new Error('Merge conflict'));
 
       const result = await run();
 
-      expect(mockOctokit.rest.pulls.updateBranch).toHaveBeenCalledWith(
-        expect.objectContaining({ pull_number: 1 })
-      );
+      expect(mockOctokit.graphql).toHaveBeenCalled();
+      expect(mockOctokit.rest.pulls.updateBranch).not.toHaveBeenCalled();
       expect(mockOctokit.rest.pulls.merge).not.toHaveBeenCalled();
       expect(core.warning).toHaveBeenCalledWith(
         expect.stringContaining('Skipping merge of PR #1 due to branch update failure')
@@ -1238,9 +1354,9 @@ describe('run', () => {
       // Second pulls.get (pre-merge re-check): still behind → triggers update flow
       // Subsequent (waitForChecksAfterUpdate): clean
       mockOctokit.rest.pulls.get
-        .mockResolvedValueOnce({ data: { mergeable: true, mergeable_state: 'behind', head: { sha: 'abc123' } } })
-        .mockResolvedValueOnce({ data: { mergeable: true, mergeable_state: 'behind', head: { sha: 'abc123' } } })
-        .mockResolvedValue({ data: { mergeable: true, mergeable_state: 'clean', head: { sha: 'abc123' } } });
+        .mockResolvedValueOnce({ data: { node_id: 'PR_1', mergeable: true, mergeable_state: 'behind', head: { sha: 'abc123' } } })
+        .mockResolvedValueOnce({ data: { node_id: 'PR_1', mergeable: true, mergeable_state: 'behind', head: { sha: 'abc123' } } })
+        .mockResolvedValue({ data: { mergeable: true, mergeable_state: 'clean', head: { sha: 'rebased123' } } });
       // First call (findMergeablePRs): status success so PR is eligible; subsequent calls
       // (waitForChecksAfterUpdate): failure so checks are considered failed after branch update.
       mockOctokit.rest.repos.getCombinedStatusForRef
@@ -1249,7 +1365,7 @@ describe('run', () => {
 
       const result = await run();
 
-      expect(mockOctokit.rest.pulls.updateBranch).toHaveBeenCalled();
+      expect(mockOctokit.graphql).toHaveBeenCalled();
       expect(mockOctokit.rest.pulls.merge).not.toHaveBeenCalled();
       expect(core.warning).toHaveBeenCalledWith(
         expect.stringContaining('Skipping merge of PR #1 because checks did not pass after branch update')
@@ -1266,6 +1382,7 @@ describe('run', () => {
       const result = await run();
 
       expect(mockOctokit.rest.pulls.updateBranch).not.toHaveBeenCalled();
+      expect(mockOctokit.graphql).not.toHaveBeenCalled();
       expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledTimes(1);
       expect(result).toBe(1);
     });
