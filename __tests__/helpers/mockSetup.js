@@ -88,7 +88,7 @@ function setupDefaultMockResponses(mockOctokit) {
   });
 
   mockOctokit.rest.pulls.listReviews.mockResolvedValue({ data: [] });
-  mockOctokit.rest.pulls.merge.mockResolvedValue({});
+  mockOctokit.rest.pulls.merge.mockResolvedValue({ data: { merged: true } });
   mockOctokit.rest.pulls.list.mockResolvedValue({ data: [] });
   mockOctokit.rest.checks.listForRef.mockResolvedValue({
     data: { check_runs: [] }
@@ -146,4 +146,3 @@ export {
   createMockPR,
   setupTestEnvironment
 };
-

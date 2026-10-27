@@ -2,13 +2,8 @@ import { jest, describe, beforeEach, test, expect } from '@jest/globals';
 import * as core from '../__fixtures__/core.js';
 import * as github from '../__fixtures__/github.js';
 
-const mockAddWorkflowSummary = jest.fn().mockResolvedValue({});
-
 jest.unstable_mockModule('@actions/core', () => core);
 jest.unstable_mockModule('@actions/github', () => github);
-jest.unstable_mockModule('../src/summary.js', () => ({
-  addWorkflowSummary: mockAddWorkflowSummary
-}));
 
 const { run } = await import('../src/index.js');
 
@@ -111,7 +106,7 @@ describe('run', () => {
       data: { default_branch: 'main' }
     });
     
-    mockOctokit.rest.pulls.merge.mockResolvedValue({});
+    mockOctokit.rest.pulls.merge.mockResolvedValue({ data: { merged: true } });
     mockOctokit.rest.pulls.updateBranch.mockResolvedValue({});
     mockOctokit.graphql.mockResolvedValue({
       updatePullRequestBranch: { pullRequest: { headRefOid: 'rebased123' } }
@@ -327,7 +322,7 @@ describe('run', () => {
     expect(core.setOutput).toHaveBeenCalledWith('merged-pr-count', 1);
   });
   
-  test('should handle errors when merging pull requests', async () => {
+  test('should fail the action when merging is rejected due to missing permissions', async () => {
     // Setup mocks to correctly pass through findMergeablePRs
     mockOctokit.rest.pulls.list.mockResolvedValue({
       data: [
@@ -344,14 +339,50 @@ describe('run', () => {
     });
     
     // Make the merge function throw an error
-    mockOctokit.rest.pulls.merge.mockRejectedValue(new Error('Merge failed'));
+    const message = 'Refusing to update workflow without workflows permission';
+    mockOctokit.rest.pulls.merge.mockRejectedValue(Object.assign(new Error(message), { status: 403 }));
     
     const result = await run();
     
     expect(mockOctokit.rest.pulls.merge).toHaveBeenCalled();
-    expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('Failed to merge PR #1'));
+    expect(core.setFailed).toHaveBeenCalledWith(`Failed to merge PR #1: ${message}`);
+    expect(core.summary.addRaw).toHaveBeenCalledWith(expect.stringContaining(`Merge failed: ${message}`));
+    expect(core.summary.write).toHaveBeenCalled();
 
     expect(result).toBe(0);
+    expect(core.setOutput).toHaveBeenCalledWith('merged-pr-count', 0);
+  });
+
+  test.each([
+    ['initial attempt', false, { merged: false, message: 'Merge rejected' }, 'Merge rejected'],
+    ['retry', true, { merged: false, message: 'Merge rejected' }, 'Merge rejected'],
+    ['response without a message', false, { merged: false }, 'GitHub did not confirm the merge']
+  ])('should fail on an unsuccessful merge response: %s', async (_name, retry, data, message) => {
+    if (retry) {
+      mockOctokit.rest.pulls.merge.mockRejectedValueOnce(new Error('Base branch was modified'));
+    }
+    mockOctokit.rest.pulls.merge.mockResolvedValue({ data });
+
+    expect(await run()).toBe(0);
+
+    expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledTimes(retry ? 2 : 1);
+    expect(core.setFailed).toHaveBeenCalledWith(`Failed to merge PR #1: ${message}`);
+    expect(core.info).not.toHaveBeenCalledWith(expect.stringContaining('Successfully merged'));
+    expect(core.setOutput).toHaveBeenCalledWith('merged-pr-count', 0);
+    expect(core.summary.addRaw).toHaveBeenCalledWith(expect.stringContaining(`Merge failed: ${message}`));
+    expect(core.summary.write).toHaveBeenCalled();
+  });
+
+  test('should fail the action when the merge retry throws', async () => {
+    mockOctokit.rest.pulls.merge
+      .mockRejectedValueOnce(new Error('Base branch was modified'))
+      .mockRejectedValueOnce(new Error('Resource not accessible by integration'));
+
+    expect(await run()).toBe(0);
+
+    expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledTimes(2);
+    expect(core.setFailed).toHaveBeenCalledWith('Failed to merge PR #1: Resource not accessible by integration');
+    expect(core.summary.write).toHaveBeenCalled();
     expect(core.setOutput).toHaveBeenCalledWith('merged-pr-count', 0);
   });
   
@@ -686,14 +717,14 @@ describe('run', () => {
       
       if (pull_number === 1) {
         // First PR merges successfully
-        return Promise.resolve();
+        return Promise.resolve({ data: { merged: true } });
       } else if (pull_number === 2) {
         if (mergeCallCount === 2) {
           // First attempt at PR #2 fails with base branch modified error
           throw new Error('Base branch was modified. Review and try the merge again.');
         } else {
           // Retry succeeds
-          return Promise.resolve();
+          return Promise.resolve({ data: { merged: true } });
         }
       }
     });
@@ -716,6 +747,7 @@ describe('run', () => {
 
     expect(result).toBe(2);
     expect(core.setOutput).toHaveBeenCalledWith('merged-pr-count', 2);
+    expect(core.setFailed).not.toHaveBeenCalled();
   });
   
   test('should skip PR that becomes non-mergeable after base branch modification', async () => {
@@ -772,7 +804,7 @@ describe('run', () => {
     
     mockOctokit.rest.pulls.merge.mockImplementation(({ pull_number }) => {
       if (pull_number === 1) {
-        return Promise.resolve();
+        return Promise.resolve({ data: { merged: true } });
       } else if (pull_number === 2) {
         reVerifyCallCount++; // Track that we're about to trigger re-verification
         throw new Error('Base branch was modified. Review and try the merge again.');
@@ -794,6 +826,7 @@ describe('run', () => {
 
     expect(result).toBe(1);
     expect(core.setOutput).toHaveBeenCalledWith('merged-pr-count', 1);
+    expect(core.setFailed).not.toHaveBeenCalled();
   });
   });
 
@@ -981,12 +1014,12 @@ describe('run', () => {
         ]
       });
 
-      // First two PRs merge successfully, third PR fails
+      // The second PR fails, but processing continues to merge the third PR.
       mockOctokit.rest.pulls.merge.mockImplementation(({ pull_number }) => {
-        if (pull_number === 1 || pull_number === 2) {
-          return Promise.resolve();
-        } else if (pull_number === 3) {
-          return Promise.reject(new Error('PR #3 merge conflict'));
+        if (pull_number === 1 || pull_number === 3) {
+          return Promise.resolve({ data: { merged: true } });
+        } else if (pull_number === 2) {
+          return Promise.reject(new Error('PR #2 merge conflict'));
         }
       });
 
@@ -996,8 +1029,11 @@ describe('run', () => {
       expect(core.setOutput).toHaveBeenCalledWith('merged-pr-count', 2);
       expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledTimes(3);
       expect(core.info).toHaveBeenCalledWith(expect.stringContaining('Successfully merged PR #1'));
-      expect(core.info).toHaveBeenCalledWith(expect.stringContaining('Successfully merged PR #2'));
-      expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('Failed to merge PR #3'));
+      expect(core.info).toHaveBeenCalledWith(expect.stringContaining('Successfully merged PR #3'));
+      expect(core.setFailed).toHaveBeenCalledWith('Failed to merge PR #2: PR #2 merge conflict');
+      expect(core.summary.addRaw).toHaveBeenCalledWith(expect.stringContaining('2 merged.'));
+      expect(core.summary.addRaw).toHaveBeenCalledWith(expect.stringContaining('Merge failed: PR #2 merge conflict'));
+      expect(core.summary.write).toHaveBeenCalled();
     });
   });
 
@@ -1144,7 +1180,7 @@ describe('run', () => {
       // Mock merge to fail first time (base branch modified), then succeed
       mockOctokit.rest.pulls.merge
         .mockRejectedValueOnce(new Error('Base branch was modified. Review and try the merge again.'))
-        .mockResolvedValueOnce();
+        .mockResolvedValueOnce({ data: { merged: true } });
 
       const result = await run();
 
@@ -1170,7 +1206,7 @@ describe('run', () => {
       // Mock merge to fail first time, then succeed
       mockOctokit.rest.pulls.merge
         .mockRejectedValueOnce(new Error('Base branch was modified'))
-        .mockResolvedValueOnce();
+        .mockResolvedValueOnce({ data: { merged: true } });
 
       const result = await run();
 
@@ -1294,7 +1330,7 @@ describe('run', () => {
         .mockResolvedValue({ data: { mergeable: true, mergeable_state: 'clean', head: { sha: 'rebased123' } } });
       mockOctokit.rest.pulls.merge
         .mockRejectedValueOnce(new Error('Base branch was modified'))
-        .mockResolvedValue({});
+        .mockResolvedValue({ data: { merged: true } });
 
       const result = await run();
 
