@@ -146,23 +146,25 @@ When enabled, the action will approve each eligible PR before attempting to merg
 
 ### `update-branch-before-merge`
 
-Whether to update PR branches that are behind the base branch before merging. Default: `false`.
+Whether to rebase PR branches that are behind the base branch before merging. Default: `false`.
 
 When enabled, the action will check if a PR branch is out-of-date with the base branch (using the `mergeable_state` field). If the branch is behind, it will:
-1. Update the PR branch to sync with the base branch
-2. Wait for CI checks to pass (up to `max-update-wait-seconds`)
-3. Proceed with merge if checks pass
+1. Request a rebase through GitHub's native GraphQL API, without posting a Dependabot command or adding a merge commit
+2. Wait for a new PR head and passing checks (up to `max-update-wait-seconds`)
+3. Revalidate that the updated commits are from Dependabot and merge only the validated head
 
-If the update fails or checks don't pass within the timeout, the PR will be skipped and the action will continue with other PRs.
+The final merge still uses `merge-method`; rebasing the PR branch does not change that setting. If the rebase fails, updated commits fail validation, or checks don't pass within the timeout, the PR will be skipped and the action will continue with other PRs. There is no fallback to updating with a merge commit.
+
+Existing PRs containing non-Dependabot commits, including merge commits from earlier branch updates, remain excluded.
 
 **Note**: This feature relies on the `mergeable_state` field from GitHub's pull request API, which GitHub considers "in flux". While widely used and stable in practice, its behavior may change without notice.
 
 ### `max-update-wait-seconds`
 
-Maximum time in seconds to wait for checks to pass after updating a PR branch. Default: `300` (5 minutes).
+Maximum time in seconds to wait for an updated PR head and passing checks after rebasing a PR branch. Default: `300` (5 minutes).
 
 This setting only applies when `update-branch-before-merge` is enabled. After updating a PR branch, the action will poll the PR status until:
-- All checks pass (proceeds with merge)
+- A new head is observed, its commits pass validation, and all checks pass (proceeds with merge)
 - Timeout is reached (skips PR)
 - Checks fail (skips PR)
 

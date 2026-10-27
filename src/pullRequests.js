@@ -111,6 +111,48 @@ function evaluateChecks(combinedStatus, checkRuns) {
   };
 }
 
+async function hasOnlyDependabotCommits(octokit, owner, repo, pullNumber, expectedCount) {
+  let page = 1;
+  let commitCount = 0;
+  let commits;
+
+  do {
+    ({ data: commits } = await octokit.rest.pulls.listCommits({
+      owner,
+      repo,
+      pull_number: pullNumber,
+      per_page: 100,
+      page
+    }));
+    commitCount += commits.length;
+
+    const nonDependabotCommits = commits.filter(commit =>
+      commit.author?.login !== 'dependabot[bot]' && commit.committer?.login !== 'dependabot[bot]'
+    );
+
+    if (nonDependabotCommits.length > 0) {
+      const reason = 'contains commits from authors other than Dependabot';
+      recordFilterReason(pullNumber, 'general', `${reason} (security risk)`);
+      core.warning(`PR #${pullNumber} ${reason}`);
+      for (const commit of nonDependabotCommits) {
+        core.debug(`  Non-Dependabot commit: ${commit.sha.substring(0, 7)} from ${commit.author?.login || 'unknown'}`);
+      }
+      return false;
+    }
+
+    page++;
+  } while (commits.length === 100);
+
+  if (commitCount === 0 || (expectedCount !== undefined && commitCount !== expectedCount)) {
+    const reason = 'Could not verify complete PR commit history';
+    recordFilterReason(pullNumber, 'general', reason);
+    core.warning(`PR #${pullNumber}: ${reason}`);
+    return false;
+  }
+
+  return true;
+}
+
 /**
  * Find pull requests that are eligible for auto-merging
  * 
@@ -173,25 +215,7 @@ async function findMergeablePRs(octokit, owner, repo, minimumAgeInDays, retryDel
     }
     
     // Security check: Ensure all commits are from Dependabot
-    const { data: commits } = await octokit.rest.pulls.listCommits({
-      owner,
-      repo,
-      pull_number: pr.number
-    });
-    
-    const nonDependabotCommits = commits.filter(commit => {
-      const author = commit.author?.login || '';
-      const committer = commit.committer?.login || '';
-      return author !== 'dependabot[bot]' && committer !== 'dependabot[bot]';
-    });
-    
-    if (nonDependabotCommits.length > 0) {
-      const reason = 'contains commits from authors other than Dependabot';
-      recordFilterReason(pr.number, 'general', `${reason} (security risk)`);
-      core.warning(`PR #${pr.number} ${reason}`);
-      for (const commit of nonDependabotCommits) {
-        core.debug(`  Non-Dependabot commit: ${commit.sha.substring(0, 7)} from ${commit.author?.login || 'unknown'}`);
-      }
+    if (!await hasOnlyDependabotCommits(octokit, owner, repo, pr.number, prDetails.commits)) {
       continue;
     }
     
@@ -498,25 +522,45 @@ async function approvePullRequest(octokit, owner, repo, pullNumber) {
 }
 
 /**
- * Update a pull request branch to sync with the base branch
+ * Rebase a pull request branch onto its base branch using GitHub's native API
  *
  * @param {Object} octokit - GitHub API client
- * @param {string} owner - Repository owner
- * @param {string} repo - Repository name
  * @param {number} pullNumber - Pull request number
+ * @param {Object} prDetails - Fresh PR details including node ID and head SHA
  * @returns {boolean} True if update succeeded, false otherwise
  */
-async function updatePRBranch(octokit, owner, repo, pullNumber) {
+async function updatePRBranch(octokit, pullNumber, prDetails) {
   try {
-    await octokit.rest.pulls.updateBranch({
-      owner,
-      repo,
-      pull_number: pullNumber
+    if (!prDetails?.node_id || !prDetails.head?.sha) {
+      throw new Error('Missing PR node ID or head SHA');
+    }
+
+    const result = await octokit.graphql(`
+      mutation RebasePullRequest($pullRequestId: ID!, $expectedHeadOid: GitObjectID!) {
+        updatePullRequestBranch(input: {
+          pullRequestId: $pullRequestId,
+          expectedHeadOid: $expectedHeadOid,
+          updateMethod: REBASE
+        }) {
+          pullRequest {
+            headRefOid
+          }
+        }
+      }
+    `, {
+      pullRequestId: prDetails.node_id,
+      expectedHeadOid: prDetails.head.sha
     });
-    core.info(`Updated branch for PR #${pullNumber} to sync with base branch`);
+
+    const updatedHead = result.updatePullRequestBranch?.pullRequest?.headRefOid;
+    if (!updatedHead) {
+      throw new Error('GitHub did not return a PR head after the rebase request');
+    }
+
+    core.info(`Requested native API rebase for PR #${pullNumber} (head: ${updatedHead})`);
     return true;
   } catch (error) {
-    core.warning(`Failed to update branch for PR #${pullNumber}: ${error.message}`);
+    core.warning(`Failed to rebase branch for PR #${pullNumber}: ${error.message}`);
     return false;
   }
 }
@@ -529,10 +573,11 @@ async function updatePRBranch(octokit, owner, repo, pullNumber) {
  * @param {string} repo - Repository name
  * @param {number} pullNumber - Pull request number
  * @param {number} maxWaitSeconds - Maximum time to wait in seconds
+ * @param {string} originalHeadSha - PR head SHA before the update
  * @param {number} retryDelayMs - Delay in milliseconds between retries
- * @returns {boolean} True if checks pass, false if timeout or failure
+ * @returns {Object|null} Validated updated PR details, or null on timeout or failure
  */
-async function waitForChecksAfterUpdate(octokit, owner, repo, pullNumber, maxWaitSeconds, retryDelayMs = 2000) {
+async function waitForChecksAfterUpdate(octokit, owner, repo, pullNumber, maxWaitSeconds, originalHeadSha, retryDelayMs = 2000) {
   const startTime = Date.now();
   const maxWaitMs = maxWaitSeconds * 1000;
   let attempt = 0;
@@ -543,10 +588,18 @@ async function waitForChecksAfterUpdate(octokit, owner, repo, pullNumber, maxWai
     attempt++;
     
     try {
-      // Check PR mergeability
-      const prDetails = await checkPRMergeability(octokit, owner, repo, pullNumber, retryDelayMs);
-      
-      if (prDetails) {
+      const { data: prDetails } = await octokit.rest.pulls.get({
+        owner,
+        repo,
+        pull_number: pullNumber
+      });
+
+      if (prDetails.head.sha !== originalHeadSha && prDetails.mergeable !== null) {
+        if (!prDetails.mergeable) {
+          core.warning(`PR #${pullNumber} is not mergeable after branch update (may have conflicts)`);
+          return null;
+        }
+
         // Evaluate both APIs via shared helper — see evaluateChecks() for API documentation.
         const { data: combinedStatus } = await octokit.rest.repos.getCombinedStatusForRef({
           owner,
@@ -567,43 +620,49 @@ async function waitForChecksAfterUpdate(octokit, owner, repo, pullNumber, maxWai
         // If any check has failed, no point in waiting
         if (checksFailed) {
           core.warning(`Checks failed for PR #${pullNumber} after branch update`);
-          return false;
+          return null;
         }
         
-        // Check if all checks are passing
-        if (prDetails.mergeable && statusSuccess && !checksPending) {
-          core.info(`Checks passed for PR #${pullNumber} after ${Math.round((Date.now() - startTime) / 1000)}s`);
-          return true;
-        }
-        
-        // If not mergeable due to conflicts, fail immediately
-        if (!prDetails.mergeable) {
-          core.warning(`PR #${pullNumber} is not mergeable after branch update (may have conflicts)`);
-          return false;
+        if (prDetails.mergeable_state !== 'behind' && statusSuccess && !checksPending) {
+          if (!await hasOnlyDependabotCommits(octokit, owner, repo, pullNumber, prDetails.commits)) {
+            return null;
+          }
+
+          const { data: confirmedPR } = await octokit.rest.pulls.get({
+            owner,
+            repo,
+            pull_number: pullNumber
+          });
+          if (confirmedPR.head.sha === prDetails.head.sha &&
+              confirmedPR.mergeable && confirmedPR.mergeable_state !== 'behind' &&
+              Date.now() - startTime < maxWaitMs) {
+            core.info(`Checks passed for PR #${pullNumber} on updated head ${prDetails.head.sha} after ${Math.round((Date.now() - startTime) / 1000)}s`);
+            return confirmedPR;
+          }
         }
         
         core.debug(`PR #${pullNumber} checks still pending (attempt ${attempt}, elapsed: ${Math.round((Date.now() - startTime) / 1000)}s)`);
       } else {
-        core.debug(`PR #${pullNumber} mergeable state could not be determined (attempt ${attempt})`);
+        core.debug(`PR #${pullNumber} is waiting for a new head or mergeable state (attempt ${attempt})`);
       }
 
       // Timeout check after API calls – ensures we don't sleep past the deadline
       const elapsedMs = Date.now() - startTime;
       if (elapsedMs >= maxWaitMs) {
         core.warning(`Timeout waiting for checks to pass on PR #${pullNumber} (waited ${Math.round(elapsedMs / 1000)}s)`);
-        return false;
+        return null;
       }
       
-      await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+      await new Promise(resolve => setTimeout(resolve, Math.min(retryDelayMs, maxWaitMs - elapsedMs)));
       
     } catch (error) {
       core.warning(`Error checking PR #${pullNumber} status (attempt ${attempt}): ${error.message}`);
       const elapsedMs = Date.now() - startTime;
       if (elapsedMs >= maxWaitMs) {
         core.warning(`Timeout waiting for checks to pass on PR #${pullNumber} (waited ${Math.round(elapsedMs / 1000)}s)`);
-        return false;
+        return null;
       }
-      await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+      await new Promise(resolve => setTimeout(resolve, Math.min(retryDelayMs, maxWaitMs - elapsedMs)));
     }
   }
 }

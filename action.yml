@@ -50,11 +50,11 @@ inputs:
     required: false
     default: 'false'
   update-branch-before-merge:
-    description: Whether to update PR branches that are behind the base branch before merging
+    description: Whether to rebase PR branches onto the base branch using GitHub's native API before merging
     required: false
     default: 'false'
   max-update-wait-seconds:
-    description: Maximum time in seconds to wait for checks to pass after updating a PR branch
+    description: Maximum time in seconds to wait for an updated PR head and passing checks after rebasing
     required: false
     default: '300'
 

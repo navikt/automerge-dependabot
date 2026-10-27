@@ -1,7 +1,7 @@
 import { parseArgs } from 'node:util';
 import * as github from '@actions/github';
 import { fileURLToPath } from 'node:url';
-import { findMergeablePRs, approvePullRequest, updatePRBranch, waitForChecksAfterUpdate } from './pullRequests.js';
+import { findMergeablePRs, approvePullRequest, checkPRMergeability, updatePRBranch, waitForChecksAfterUpdate } from './pullRequests.js';
 import { shouldRunAtCurrentTime } from './timeUtils.js';
 import { applyFilters, getAllFilterReasons } from './filters.js';
 
@@ -292,18 +292,29 @@ async function runCli(options) {
       for (const pr of filteredPRs) {
         console.log(`\n⏳ Merging PR #${pr.number}: ${pr.title}`);
 
-        if (options.updateBranchBeforeMerge && pr.prDetails && pr.prDetails.mergeable_state === 'behind') {
+        let updatedHeadSha;
+        const freshPR = options.updateBranchBeforeMerge
+          ? await checkPRMergeability(octokit, owner, repo, pr.number, options.retryDelayMs)
+          : pr.prDetails;
+
+        if (options.updateBranchBeforeMerge && !freshPR?.mergeable) {
+          console.warn(`Skipping PR #${pr.number}: could not confirm mergeability before branch update`);
+          continue;
+        }
+
+        if (options.updateBranchBeforeMerge && freshPR.mergeable_state === 'behind') {
           console.log(`   Updating branch for PR #${pr.number}...`);
-          const updateSuccess = await updatePRBranch(octokit, owner, repo, pr.number);
+          const updateSuccess = await updatePRBranch(octokit, pr.number, freshPR);
           if (!updateSuccess) {
             console.warn(`⚠️  Skipping PR #${pr.number}: branch update failed`);
             continue;
           }
-          const checksPass = await waitForChecksAfterUpdate(octokit, owner, repo, pr.number, options.maxUpdateWaitSeconds, options.retryDelayMs);
-          if (!checksPass) {
+          const updatedPR = await waitForChecksAfterUpdate(octokit, owner, repo, pr.number, options.maxUpdateWaitSeconds, freshPR.head.sha, options.retryDelayMs);
+          if (!updatedPR) {
             console.warn(`⚠️  Skipping PR #${pr.number}: checks did not pass after branch update`);
             continue;
           }
+          updatedHeadSha = updatedPR.head.sha;
         }
 
         if (options.autoApprove) {
@@ -319,7 +330,8 @@ async function runCli(options) {
             owner,
             repo,
             pull_number: pr.number,
-            merge_method: options.mergeMethod
+            merge_method: options.mergeMethod,
+            ...(updatedHeadSha ? { sha: updatedHeadSha } : {})
           });
           console.log(`✅ Successfully merged PR #${pr.number}`);
         } catch (error) {
@@ -359,8 +371,8 @@ Options for 'run':
   --merge-method <method>            Merge method: merge, squash, rebase (default: merge)
   --retry-delay-ms <ms>              Delay in ms between retries (default: 2000)
   --auto-approve                     Automatically approve PRs before merging
-  --update-branch-before-merge       Update PR branches behind the base branch before merging
-  --max-update-wait-seconds <secs>   Max seconds to wait for checks after branch update (default: 300)
+  --update-branch-before-merge       Rebase PR branches onto the base branch before merging
+  --max-update-wait-seconds <secs>   Max seconds to wait for rebased head and checks (default: 300)
   --no-dry-run                       Actually merge PRs (default is dry run)
   -v, --verbose                      Enable verbose logging
 `);

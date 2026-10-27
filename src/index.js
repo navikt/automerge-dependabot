@@ -140,15 +140,16 @@ async function run() {
             continue;
           }
 
+          let updatedHeadSha;
+
           // Check if branch needs updating and update-branch-before-merge is enabled
           if (updateBranchBeforeMerge && freshPRDetails.mergeable_state === 'behind') {
             core.info(`PR #${pr.number} branch is behind base branch. Updating...`);
             
             const updateSuccess = await updatePRBranch(
               octokit,
-              context.repo.owner,
-              context.repo.repo,
-              pr.number
+              pr.number,
+              freshPRDetails
             );
             
             if (!updateSuccess) {
@@ -158,20 +159,22 @@ async function run() {
             }
             
             // Wait for checks to pass after update
-            const checksPass = await waitForChecksAfterUpdate(
+            const updatedPR = await waitForChecksAfterUpdate(
               octokit,
               context.repo.owner,
               context.repo.repo,
               pr.number,
               maxUpdateWaitSeconds,
+              freshPRDetails.head.sha,
               retryDelayMs
             );
             
-            if (!checksPass) {
+            if (!updatedPR) {
               core.warning(`Skipping merge of PR #${pr.number} because checks did not pass after branch update`);
               recordFilterReason(pr.number, 'merge', 'Checks did not pass after branch update');
               continue;
             }
+            updatedHeadSha = updatedPR.head.sha;
           }
 
           // Auto-approve if enabled
@@ -199,7 +202,8 @@ async function run() {
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   pull_number: pr.number,
-                  merge_method: mergeMethod
+                  merge_method: mergeMethod,
+                  ...(updatedHeadSha ? { sha: updatedHeadSha } : {})
                 });
                 
                 core.info(`Successfully merged PR #${pr.number}`);
@@ -230,6 +234,13 @@ async function run() {
                     recordFilterReason(pr.number, 'merge', 'No longer mergeable after base branch modification');
                     continue;
                   }
+
+                  if (updatedHeadSha && (currentPRDetails.head.sha !== updatedHeadSha ||
+                      currentPRDetails.mergeable_state === 'behind')) {
+                    core.warning(`Skipping PR #${pr.number}: branch changed after rebase validation`);
+                    recordFilterReason(pr.number, 'merge', 'Branch changed after rebase validation');
+                    continue;
+                  }
                   
                   // Retry the merge
                   core.info(`Retrying merge for PR #${pr.number} after re-verification`);
@@ -237,7 +248,8 @@ async function run() {
                     owner: context.repo.owner,
                     repo: context.repo.repo,
                     pull_number: pr.number,
-                    merge_method: mergeMethod
+                    merge_method: mergeMethod,
+                    ...(updatedHeadSha ? { sha: updatedHeadSha } : {})
                   });
                   
                   core.info(`Successfully merged PR #${pr.number} on retry`);
