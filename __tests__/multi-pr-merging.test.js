@@ -59,7 +59,7 @@ describe('Merging multiple PRs when base branch changes', () => {
       { number: 2, mergeable: false, mergeable_state: 'dirty', head: { sha: 'sha2' } }
     ]);
 
-    mockOctokit.rest.pulls.merge.mockResolvedValueOnce({}); // PR1 succeeds
+    mockOctokit.rest.pulls.merge.mockResolvedValueOnce({ data: { merged: true } }); // PR1 succeeds
 
     await run();
 
@@ -92,8 +92,8 @@ describe('Merging multiple PRs when base branch changes', () => {
     ]);
 
     mockOctokit.rest.pulls.merge
-      .mockResolvedValueOnce({}) // PR1 succeeds
-      .mockResolvedValueOnce({}); // PR2 succeeds
+      .mockResolvedValueOnce({ data: { merged: true } }) // PR1 succeeds
+      .mockResolvedValueOnce({ data: { merged: true } }); // PR2 succeeds
 
     await run();
 
