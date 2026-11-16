@@ -38256,10 +38256,10 @@ async function run() {
     const retryDelayMs = Number.isNaN(parsedRetryDelay) ? 10000 : parsedRetryDelay;
     const autoApprove = getInput('auto-approve') === 'true';
     const updateBranchBeforeMerge = getInput('update-branch-before-merge') === 'true';
-    let mergeQueueMode = (getInput('merge-queue') || 'auto').trim().toLowerCase();
+    let mergeQueueMode = (getInput('merge-queue') || 'false').trim().toLowerCase();
     if (!['auto', 'true', 'false'].includes(mergeQueueMode)) {
-      warning(`Invalid merge-queue value '${mergeQueueMode}'. Expected auto, true or false. Using 'auto'.`);
-      mergeQueueMode = 'auto';
+      warning(`Invalid merge-queue value '${mergeQueueMode}'. Expected auto, true or false. Using 'false'.`);
+      mergeQueueMode = 'false';
     }
     const parsedMaxUpdateWait = parseInt(getInput('max-update-wait-seconds'), 10);
     const maxUpdateWaitSeconds = Number.isNaN(parsedMaxUpdateWait) ? 300 : parsedMaxUpdateWait;

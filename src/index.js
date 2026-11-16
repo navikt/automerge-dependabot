@@ -39,10 +39,10 @@ async function run() {
     const retryDelayMs = Number.isNaN(parsedRetryDelay) ? 10000 : parsedRetryDelay;
     const autoApprove = core.getInput('auto-approve') === 'true';
     const updateBranchBeforeMerge = core.getInput('update-branch-before-merge') === 'true';
-    let mergeQueueMode = (core.getInput('merge-queue') || 'auto').trim().toLowerCase();
+    let mergeQueueMode = (core.getInput('merge-queue') || 'false').trim().toLowerCase();
     if (!['auto', 'true', 'false'].includes(mergeQueueMode)) {
-      core.warning(`Invalid merge-queue value '${mergeQueueMode}'. Expected auto, true or false. Using 'auto'.`);
-      mergeQueueMode = 'auto';
+      core.warning(`Invalid merge-queue value '${mergeQueueMode}'. Expected auto, true or false. Using 'false'.`);
+      mergeQueueMode = 'false';
     }
     const parsedMaxUpdateWait = parseInt(core.getInput('max-update-wait-seconds'), 10);
     const maxUpdateWaitSeconds = Number.isNaN(parsedMaxUpdateWait) ? 300 : parsedMaxUpdateWait;

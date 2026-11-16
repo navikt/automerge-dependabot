@@ -43,7 +43,7 @@ describe('merge queue support', () => {
 
   function setup(inputOverrides = {}) {
     ({ mockOctokit } = setupTestEnvironment(core, github, {
-      inputOverrides: { 'retry-delay-ms': '1', ...inputOverrides }
+      inputOverrides: { 'retry-delay-ms': '1', 'merge-queue': 'auto', ...inputOverrides }
     }));
     core.setFailed.mockClear();
     core.setOutput.mockClear();
@@ -93,6 +93,17 @@ describe('merge queue support', () => {
     expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('Falling back to direct merge'));
   });
 
+  test('is opt-in: without the input, rules are not checked and PRs merge directly', async () => {
+    setup({ 'merge-queue': '' });
+    mockOctokit.rest.repos.getBranchRules.mockResolvedValue(queueRules);
+    setupPRs(mockOctokit, [1]);
+
+    await run();
+
+    expect(mockOctokit.rest.repos.getBranchRules).not.toHaveBeenCalled();
+    expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledTimes(1);
+  });
+
   test('merge-queue=false never checks rules and merges directly', async () => {
     setup({ 'merge-queue': 'false' });
     mockOctokit.rest.repos.getBranchRules.mockResolvedValue(queueRules);
@@ -118,13 +129,14 @@ describe('merge queue support', () => {
     expect(core.setOutput).toHaveBeenCalledWith('queued-pr-count', 1);
   });
 
-  test('invalid merge-queue value warns and uses auto', async () => {
+  test('invalid merge-queue value warns and uses false', async () => {
     setup({ 'merge-queue': 'sometimes' });
     setupPRs(mockOctokit, [1]);
 
     await run();
 
     expect(core.warning).toHaveBeenCalledWith(expect.stringContaining("Invalid merge-queue value 'sometimes'"));
+    expect(mockOctokit.rest.repos.getBranchRules).not.toHaveBeenCalled();
     expect(mockOctokit.rest.pulls.merge).toHaveBeenCalledTimes(1);
   });
 

@@ -134,13 +134,13 @@ Note: On branches that use a merge queue, this setting is ignored; the merge met
 
 ### `merge-queue`
 
-Controls how the action handles [GitHub merge queues](https://docs.github.com/en/repositories/configuring-branches-and-merges/configuring-pull-request-merges/managing-a-merge-queue). Default: `auto`.
+Controls how the action handles [GitHub merge queues](https://docs.github.com/en/repositories/configuring-branches-and-merges/configuring-pull-request-merges/managing-a-merge-queue). Opt-in. Default: `false`.
 
-- `auto`: checks the base branch's rules (`merge_queue`). If a merge queue is required, the PR is added to the queue instead of being merged directly. If the rules cannot be read, the action logs a warning and merges directly, as before.
-- `true`: always add PRs to the merge queue without checking the rules.
 - `false`: never use the queue; always merge directly (the behaviour before merge queue support).
+- `auto`: checks the base branch's rules (`merge_queue`). If a merge queue is required, the PR is added to the queue instead of being merged directly. If the rules cannot be read, the action logs a warning and merges directly.
+- `true`: always add PRs to the merge queue without checking the rules.
 
-Repositories without a merge queue behave exactly as before. On the queue path, `update-branch-before-merge` and the "base branch was modified" retry are skipped, since the queue tests PRs against the latest base itself. Queued PRs are counted in the `queued-pr-count` output, not in `merged-pr-count`, and are shown as "Queued" in the workflow summary. If adding a PR to the queue fails, the action fails and records the reason.
+With the default (`false`), the action behaves exactly as before. On the queue path, `update-branch-before-merge` and the "base branch was modified" retry are skipped, since the queue tests PRs against the latest base itself. Queued PRs are counted in the `queued-pr-count` output, not in `merged-pr-count`, and are shown as "Queued" in the workflow summary. If adding a PR to the queue fails, the action fails and records the reason.
 
 The token needs permission to read the branch rules (repository metadata read) and to add PRs to the merge queue (`pull-requests: write`).
 

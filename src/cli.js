@@ -290,7 +290,7 @@ async function runCli(options) {
     } else {
       console.log(`\n🚀 Merging ${filteredPRs.length} PR(s)...`);
 
-      const mergeQueueMode = (options.mergeQueue || 'auto').toLowerCase();
+      const mergeQueueMode = (options.mergeQueue || 'false').toLowerCase();
       if (!['auto', 'true', 'false'].includes(mergeQueueMode)) {
         throw new Error(`Invalid --merge-queue value '${options.mergeQueue}'. Expected auto, true or false.`);
       }
@@ -392,7 +392,7 @@ Options for 'run':
   --ignored-versions <versions>      Comma-separated list of specific versions to ignore
   --semver-filter <levels>           Semver levels to allow (default: patch,minor)
   --merge-method <method>            Merge method: merge, squash, rebase (default: merge)
-  --merge-queue <mode>               Merge queue handling: auto, true, false (default: auto)
+  --merge-queue <mode>               Merge queue handling: auto, true, false (default: false)
   --retry-delay-ms <ms>              Delay in ms between retries (default: 2000)
   --auto-approve                     Automatically approve PRs before merging
   --update-branch-before-merge       Rebase PR branches onto the base branch before merging
@@ -488,7 +488,7 @@ async function main() {
       'ignored-versions':     { type: 'string' },
       'semver-filter':        { type: 'string', default: 'patch,minor' },
       'merge-method':         { type: 'string', default: 'merge' },
-      'merge-queue':          { type: 'string', default: 'auto' },
+      'merge-queue':          { type: 'string', default: 'false' },
       'retry-delay-ms':       { type: 'string', default: '2000' },
       'no-dry-run':                   { type: 'boolean', default: false },
       'auto-approve':                 { type: 'boolean', default: false },

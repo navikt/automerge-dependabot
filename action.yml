@@ -54,9 +54,9 @@ inputs:
     required: false
     default: 'false'
   merge-queue:
-    description: "How to handle GitHub merge queues: 'auto' detects a merge queue rule on the base branch and adds the PR to the queue (falls back to a direct merge if detection fails), 'true' always adds PRs to the queue, 'false' always merges directly"
+    description: "How to handle GitHub merge queues: 'false' (default) always merges directly, 'auto' detects a merge queue rule on the base branch and adds the PR to the queue (falls back to a direct merge if detection fails), 'true' always adds PRs to the queue"
     required: false
-    default: 'auto'
+    default: 'false'
   max-update-wait-seconds:
     description: Maximum time in seconds to wait for an updated PR head and passing checks after rebasing
     required: false
