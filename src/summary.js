@@ -33,9 +33,10 @@ function createTableHeader(columns) {
  * @param {Set<number>} mergedPRNumbers - Set of PR numbers that were successfully merged
  * @param {Object} filters - Filtering rules that were applied
  * @param {Array} initialPRs - Array of all initial PRs found (including those filtered in basic criteria)
+ * @param {Set<number>} queuedPRNumbers - Set of PR numbers that were added to a merge queue
  * @returns {Promise<void>}
  */
-async function addWorkflowSummary(allPRs, prsToMerge, mergedPRNumbers, filters, initialPRs = []) {
+async function addWorkflowSummary(allPRs, prsToMerge, mergedPRNumbers, filters, initialPRs = [], queuedPRNumbers = new Set()) {
   try {
     // Start with a header (or two)
     core.summary.addHeading('Dependabot Automerge Summary', 1);
@@ -76,7 +77,11 @@ async function addWorkflowSummary(allPRs, prsToMerge, mergedPRNumbers, filters, 
         summaryMessage += ` (out of ${initialPRs.length} total open PRs)`;
       }
       const mergedCount = mergedPRNumbers ? mergedPRNumbers.size : prsToMerge.length;
-      summaryMessage += `, ${mergedCount} merged.`;
+      summaryMessage += `, ${mergedCount} merged`;
+      if (queuedPRNumbers.size > 0) {
+        summaryMessage += `, ${queuedPRNumbers.size} queued`;
+      }
+      summaryMessage += '.';
       core.summary.addRaw(summaryMessage + '\n\n');
     }
     
@@ -87,7 +92,9 @@ async function addWorkflowSummary(allPRs, prsToMerge, mergedPRNumbers, filters, 
       const hasLabelFiltering = filters.alwaysAllowLabels && filters.alwaysAllowLabels.length > 0;
 
       const mergedPRs = prsToMerge.filter(pr => mergedPRNumbers && mergedPRNumbers.has(pr.number));
-      const skippedDuringMerge = prsToMerge.filter(pr => !mergedPRNumbers || !mergedPRNumbers.has(pr.number));
+      const queuedPRs = prsToMerge.filter(pr => queuedPRNumbers.has(pr.number));
+      const skippedDuringMerge = prsToMerge.filter(pr =>
+        (!mergedPRNumbers || !mergedPRNumbers.has(pr.number)) && !queuedPRNumbers.has(pr.number));
 
       const renderPRTable = (prs, title) => {
         if (prs.length === 0) return;
@@ -134,6 +141,7 @@ async function addWorkflowSummary(allPRs, prsToMerge, mergedPRNumbers, filters, 
       };
 
       renderPRTable(mergedPRs, 'Merged Pull Requests');
+      renderPRTable(queuedPRs, 'Queued Pull Requests');
 
       if (skippedDuringMerge.length > 0) {
         core.summary.addRaw(createSectionTitle('Pull Requests Skipped During Merge') + '\n\n');

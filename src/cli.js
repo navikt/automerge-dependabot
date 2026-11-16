@@ -1,7 +1,7 @@
 import { parseArgs } from 'node:util';
 import * as github from '@actions/github';
 import { fileURLToPath } from 'node:url';
-import { findMergeablePRs, approvePullRequest, checkPRMergeability, updatePRBranch, waitForChecksAfterUpdate } from './pullRequests.js';
+import { findMergeablePRs, approvePullRequest, checkPRMergeability, updatePRBranch, waitForChecksAfterUpdate, hasMergeQueue, enqueuePullRequest } from './pullRequests.js';
 import { shouldRunAtCurrentTime } from './timeUtils.js';
 import { applyFilters, getAllFilterReasons } from './filters.js';
 
@@ -140,6 +140,7 @@ async function runCli(options) {
     console.log('\n⚙️  Configuration:');
     console.log(`   • Minimum PR age: ${options.minimumAge} days`);
     console.log(`   • Merge method: ${options.mergeMethod}`);
+    console.log(`   • Merge queue: ${options.mergeQueue}`);
     console.log(`   • Dry run: ${options.dryRun}`);
     console.log(`   • Semver filter: ${filterOptions.semverFilter.join(', ')}`);
     console.log(`   • Auto-approve: ${options.autoApprove}`);
@@ -289,8 +290,20 @@ async function runCli(options) {
     } else {
       console.log(`\n🚀 Merging ${filteredPRs.length} PR(s)...`);
 
+      const mergeQueueMode = (options.mergeQueue || 'auto').toLowerCase();
+      if (!['auto', 'true', 'false'].includes(mergeQueueMode)) {
+        throw new Error(`Invalid --merge-queue value '${options.mergeQueue}'. Expected auto, true or false.`);
+      }
+      const mergeQueueCache = new Map();
+
       for (const pr of filteredPRs) {
         console.log(`\n⏳ Merging PR #${pr.number}: ${pr.title}`);
+
+        let useQueue = mergeQueueMode === 'true';
+        const baseBranch = pr.prDetails?.base?.ref ?? pr.base?.ref;
+        if (mergeQueueMode === 'auto' && baseBranch) {
+          useQueue = (await hasMergeQueue(octokit, owner, repo, baseBranch, mergeQueueCache)) === true;
+        }
 
         let updatedHeadSha;
         const freshPR = options.updateBranchBeforeMerge
@@ -302,7 +315,7 @@ async function runCli(options) {
           continue;
         }
 
-        if (options.updateBranchBeforeMerge && freshPR.mergeable_state === 'behind') {
+        if (!useQueue && options.updateBranchBeforeMerge && freshPR.mergeable_state === 'behind') {
           console.log(`   Updating branch for PR #${pr.number}...`);
           const updateSuccess = await updatePRBranch(octokit, pr.number, freshPR);
           if (!updateSuccess) {
@@ -323,6 +336,16 @@ async function runCli(options) {
             console.warn(`⚠️  Skipping PR #${pr.number}: auto-approval failed`);
             continue;
           }
+        }
+
+        if (useQueue) {
+          try {
+            await enqueuePullRequest(octokit, pr.number, freshPR ?? pr.prDetails);
+            console.log(`📥 Added PR #${pr.number} to the merge queue`);
+          } catch (error) {
+            console.error(`❌ Failed to add PR #${pr.number} to the merge queue: ${error.message}`);
+          }
+          continue;
         }
 
         try {
@@ -369,6 +392,7 @@ Options for 'run':
   --ignored-versions <versions>      Comma-separated list of specific versions to ignore
   --semver-filter <levels>           Semver levels to allow (default: patch,minor)
   --merge-method <method>            Merge method: merge, squash, rebase (default: merge)
+  --merge-queue <mode>               Merge queue handling: auto, true, false (default: auto)
   --retry-delay-ms <ms>              Delay in ms between retries (default: 2000)
   --auto-approve                     Automatically approve PRs before merging
   --update-branch-before-merge       Rebase PR branches onto the base branch before merging
@@ -464,6 +488,7 @@ async function main() {
       'ignored-versions':     { type: 'string' },
       'semver-filter':        { type: 'string', default: 'patch,minor' },
       'merge-method':         { type: 'string', default: 'merge' },
+      'merge-queue':          { type: 'string', default: 'auto' },
       'retry-delay-ms':       { type: 'string', default: '2000' },
       'no-dry-run':                   { type: 'boolean', default: false },
       'auto-approve':                 { type: 'boolean', default: false },
@@ -494,6 +519,7 @@ async function main() {
     ignoredVersions:      values['ignored-versions'],
     semverFilter:         values['semver-filter'],
     mergeMethod:          values['merge-method'],
+    mergeQueue:                  values['merge-queue'],
     retryDelayMs:                parseInt(values['retry-delay-ms'], 10) || 2000,
     dryRun:                      !values['no-dry-run'],
     autoApprove:                 values['auto-approve'],

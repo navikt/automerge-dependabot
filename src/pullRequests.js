@@ -667,6 +667,83 @@ async function waitForChecksAfterUpdate(octokit, owner, repo, pullNumber, maxWai
   }
 }
 
+/**
+ * Check whether a branch is governed by a merge queue rule.
+ * Results are cached per branch in the provided Map.
+ *
+ * @param {Object} octokit - GitHub API client
+ * @param {string} owner - Repository owner
+ * @param {string} repo - Repository name
+ * @param {string} branch - Base branch name
+ * @param {Map<string, boolean|null>} cache - Per-run cache keyed by branch
+ * @returns {Promise<boolean|null>} True/false, or null if detection failed
+ */
+async function hasMergeQueue(octokit, owner, repo, branch, cache = new Map()) {
+  if (cache.has(branch)) {
+    return cache.get(branch);
+  }
+
+  let result;
+  try {
+    const { data: rules } = await octokit.rest.repos.getBranchRules({
+      owner,
+      repo,
+      branch,
+      per_page: 100
+    });
+    result = rules.some(rule => rule.type === 'merge_queue');
+  } catch (error) {
+    core.warning(`Could not determine whether branch '${branch}' uses a merge queue: ${error.message}. Falling back to direct merge.`);
+    result = null;
+  }
+
+  cache.set(branch, result);
+  return result;
+}
+
+/**
+ * Add a pull request to the merge queue using GitHub's GraphQL API
+ *
+ * @param {Object} octokit - GitHub API client
+ * @param {number} pullNumber - Pull request number
+ * @param {Object} prDetails - Fresh PR details including node ID and head SHA
+ * @param {string} [expectedHeadOid] - Head SHA the PR is expected to have
+ * @returns {Promise<{position: number, state: string}>} The created queue entry
+ * @throws {Error} If the PR could not be added to the queue
+ */
+async function enqueuePullRequest(octokit, pullNumber, prDetails, expectedHeadOid) {
+  if (!prDetails?.node_id) {
+    throw new Error('Missing PR node ID');
+  }
+
+  const headOid = expectedHeadOid ?? prDetails.head?.sha;
+
+  const result = await octokit.graphql(`
+    mutation Enqueue($pullRequestId: ID!, $expectedHeadOid: GitObjectID) {
+      enqueuePullRequest(input: {
+        pullRequestId: $pullRequestId,
+        expectedHeadOid: $expectedHeadOid
+      }) {
+        mergeQueueEntry {
+          position
+          state
+        }
+      }
+    }
+  `, {
+    pullRequestId: prDetails.node_id,
+    expectedHeadOid: headOid
+  });
+
+  const entry = result?.enqueuePullRequest?.mergeQueueEntry;
+  if (!entry) {
+    throw new Error('GitHub did not return a merge queue entry');
+  }
+
+  core.info(`Added PR #${pullNumber} to the merge queue (position: ${entry.position}, state: ${entry.state})`);
+  return entry;
+}
+
 export {
   findMergeablePRs,
   extractDependencyInfo,
@@ -675,6 +752,8 @@ export {
   checkPRMergeability,
   approvePullRequest,
   updatePRBranch,
+  hasMergeQueue,
+  enqueuePullRequest,
   waitForChecksAfterUpdate,
   evaluateChecks
 };

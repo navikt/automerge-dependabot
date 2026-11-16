@@ -130,7 +130,19 @@ Comma-separated list of: `major`, `minor`, `patch`, `unknown`. Default: `patch,m
 The merge method to use when merging pull requests. Default: `merge`.
 Possible values: `merge`, `squash`, `rebase`.
 
-Note: If a repository uses GitHub branch protection with merge queues, only the `merge` method is supported. The action will warn you if you're trying to use `squash` or `rebase` with a repository that has merge queues enabled.
+Note: On branches that use a merge queue, this setting is ignored; the merge method configured in the queue's ruleset applies. See [`merge-queue`](#merge-queue).
+
+### `merge-queue`
+
+Controls how the action handles [GitHub merge queues](https://docs.github.com/en/repositories/configuring-branches-and-merges/configuring-pull-request-merges/managing-a-merge-queue). Default: `auto`.
+
+- `auto`: checks the base branch's rules (`merge_queue`). If a merge queue is required, the PR is added to the queue instead of being merged directly. If the rules cannot be read, the action logs a warning and merges directly, as before.
+- `true`: always add PRs to the merge queue without checking the rules.
+- `false`: never use the queue; always merge directly (the behaviour before merge queue support).
+
+Repositories without a merge queue behave exactly as before. On the queue path, `update-branch-before-merge` and the "base branch was modified" retry are skipped, since the queue tests PRs against the latest base itself. Queued PRs are counted in the `queued-pr-count` output, not in `merged-pr-count`, and are shown as "Queued" in the workflow summary. If adding a PR to the queue fails, the action fails and records the reason.
+
+The token needs permission to read the branch rules (repository metadata read) and to add PRs to the merge queue (`pull-requests: write`).
 
 ### `retry-delay-ms`
 
@@ -263,7 +275,7 @@ jobs:
    - Attempts to merge using the specified merge method
    - If merge fails due to base branch modification, re-verifies mergeability and retries once
    - Waits retry-delay-ms between merges to allow GitHub to process changes
-9. Returns the number of successfully merged pull requests as the action output `merged-pr-count`
+9. Returns the number of successfully merged pull requests as the action output `merged-pr-count`, and the number of pull requests added to a merge queue as `queued-pr-count`
 
 ## Workflow Summary
 
