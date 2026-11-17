@@ -344,6 +344,7 @@ async function runCli(options) {
             console.log(`📥 Added PR #${pr.number} to the merge queue`);
           } catch (error) {
             console.error(`❌ Failed to add PR #${pr.number} to the merge queue: ${error.message}`);
+            process.exitCode = 1;
           }
           continue;
         }
