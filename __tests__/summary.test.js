@@ -469,4 +469,16 @@ describe('addWorkflowSummary', () => {
 
     expect(mockSummary.write).toHaveBeenCalled();
   });
+
+  test('should show queued PRs separately and not as skipped', async () => {
+    const pr = { number: 1, html_url: 'https://github.com/owner/repo/pull/1', dependencyInfo: { name: 'lodash', toVersion: '4.17.21' } };
+    const filters = { alwaysAllow: [], ignoredVersions: [], ignoredDependencies: [], semverFilter: ['patch'] };
+
+    await addWorkflowSummary([pr], [pr], new Set(), filters, [pr], new Set([1]));
+
+    const content = mockSummary.addRaw.mock.calls.map(c => c[0]).join('');
+    expect(content).toContain('Queued Pull Requests');
+    expect(content).toContain('1 queued');
+    expect(content).not.toContain('Skipped During Merge');
+  });
 });
