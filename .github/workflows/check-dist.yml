@@ -35,7 +35,7 @@ jobs:
 
       - name: Setup pnpm
         id: setup-pnpm
-        uses: pnpm/action-setup@v6.1.0
+        uses: pnpm/action-setup@v6.1.1
         with:
           version: '10.30.1'
 
