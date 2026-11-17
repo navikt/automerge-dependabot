@@ -16,12 +16,14 @@ function createMockOctokit() {
       },
       repos: {
         getCombinedStatusForRef: jest.fn(),
-        get: jest.fn()
+        get: jest.fn(),
+        getBranchRules: jest.fn()
       },
       checks: {
         listForRef: jest.fn()
       }
-    }
+    },
+    graphql: jest.fn()
   };
 }
 
@@ -87,6 +89,7 @@ function setupDefaultMockResponses(mockOctokit) {
     data: { state: 'success' }
   });
 
+  mockOctokit.rest.repos.getBranchRules.mockResolvedValue({ data: [] });
   mockOctokit.rest.pulls.listReviews.mockResolvedValue({ data: [] });
   mockOctokit.rest.pulls.merge.mockResolvedValue({ data: { merged: true } });
   mockOctokit.rest.pulls.list.mockResolvedValue({ data: [] });
